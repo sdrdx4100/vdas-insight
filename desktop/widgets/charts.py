@@ -8,8 +8,8 @@ from PySide6 import QtCore
 from .. import theme
 from .plots import style_axes
 
-# Sequential blue ramp (dark) for heatmaps.
-_SEQ = ["#0d366b", "#184f95", "#256abf", "#3987e5", "#6da7ec", "#9ec5f4", "#cde2fb"]
+# Sequential blue ramp for heatmaps: low (near-white) → high (dark ink).
+_SEQ = ["#eaf2fc", "#cde2fb", "#9ec5f4", "#6da7ec", "#3987e5", "#256abf", "#184f95", "#0d366b"]
 
 
 def _seq_lut(n=256):
@@ -52,9 +52,11 @@ class BarChart(pg.GraphicsLayoutWidget):
                 pts = pts[np.isfinite(pts)]
                 if len(pts):
                     jitter = (np.random.default_rng(0).random(len(pts)) - 0.5) * 0.28
+                    # dark dot + light halo → visible both on colored bars and surface
                     sp = pg.ScatterPlotItem(
                         x=xi + jitter, y=pts, size=7,
-                        brush=pg.mkBrush("#ffffff"), pen=pg.mkPen(col, width=1.2))
+                        brush=pg.mkBrush(theme.INK),
+                        pen=pg.mkPen(theme.BG_PLOT, width=1.4))
                     sp.setZValue(20)
                     self.plot.addItem(sp)
         ax = self.plot.getAxis("bottom")
@@ -120,10 +122,13 @@ class Heatmap(pg.GraphicsLayoutWidget):
         # value overlays
         for it in [i for i in self.plot.items if isinstance(i, pg.TextItem)]:
             self.plot.removeItem(it)
+        hi = vmax if vmax > 0 else 1
         for r in range(z.shape[0]):
             for c in range(z.shape[1]):
                 if z[r, c] > 0:
-                    t = pg.TextItem(f"{int(z[r, c])}", color=theme.INK, anchor=(0.5, 0.5))
+                    # white ink on dark (high) cells, dark ink on light (low) cells
+                    col = "#ffffff" if z[r, c] / hi > 0.55 else theme.INK
+                    t = pg.TextItem(f"{int(z[r, c])}", color=col, anchor=(0.5, 0.5))
                     t.setPos(c + 0.5, r + 0.5)
                     self.plot.addItem(t)
         self.plot.setYRange(0, len(row_labels))

@@ -1,4 +1,4 @@
-"""Dark instrument theme (INCA/CANape-inspired) for the Qt app + pyqtgraph.
+"""Light instrument theme for the Qt app + pyqtgraph.
 
 One place defines the palette, the Qt stylesheet, and the pyqtgraph defaults so
 the whole app reads as a single measurement instrument.
@@ -9,34 +9,34 @@ from PySide6 import QtGui, QtWidgets
 import pyqtgraph as pg
 
 # --- Core surfaces / ink ----------------------------------------------------
-BG_WINDOW = "#17181c"   # outermost window
-BG_PANEL = "#202329"    # docks / toolbars
-BG_BASE = "#14161a"     # inputs, trees, tables
-BG_PLOT = "#121316"     # plot canvas
-BG_ELEV = "#282c34"     # hovered / selected rows
-INK = "#c9ccd1"         # primary text
-INK_DIM = "#8b9099"     # secondary text
-INK_FAINT = "#5b616b"   # axes / muted
-BORDER = "#2c2f36"
-ACCENT = "#3987e5"      # selection / primary
-GRID = "#25272d"
+BG_WINDOW = "#f4f5f7"   # outermost window (light plane)
+BG_PANEL = "#eceef1"    # docks / toolbars
+BG_BASE = "#ffffff"     # inputs, trees, tables
+BG_PLOT = "#ffffff"     # plot canvas
+BG_ELEV = "#dde1e7"     # hovered / selected rows
+INK = "#1a1c1f"         # primary text
+INK_DIM = "#5b616b"     # secondary text
+INK_FAINT = "#8b9099"   # axes / muted
+BORDER = "#d4d7dd"
+ACCENT = "#2a78d6"      # selection / primary
+GRID = "#e6e8ec"
 
-# --- Categorical palette (dataviz dark-mode steps, fixed order) -------------
-SERIES = ["#3987e5", "#d95926", "#199e70", "#c98500",
-          "#d55181", "#008300", "#9085e9", "#e66767"]
+# --- Categorical palette (dataviz light-mode steps, fixed order) ------------
+SERIES = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100",
+          "#e87ba4", "#008300", "#4a3aa7", "#e34948"]
 
-STATUS = {"good": "#0ca30c", "warning": "#fab219",
-          "serious": "#ec835a", "critical": "#d03b3b"}
+STATUS = {"good": "#0ca30c", "warning": "#b5730a",
+          "serious": "#d1502a", "critical": "#d03b3b"}
 
-# Role → accent color (used for badges in the signal tree).
+# Role → accent color (used for badges in the signal tree; readable on white).
 ROLE_COLORS = {
-    "time": "#8b9099",
-    "gear": "#c98500",
-    "flag": "#d95926",
-    "speed": "#3987e5",
-    "numeric": "#199e70",
-    "category": "#9085e9",
-    "ignore": "#5b616b",
+    "time": "#6b7079",
+    "gear": "#b5730a",
+    "flag": "#d1502a",
+    "speed": "#2a78d6",
+    "numeric": "#178a60",
+    "category": "#5a48c0",
+    "ignore": "#9aa0a8",
 }
 
 
@@ -55,7 +55,7 @@ def apply_theme(app: QtWidgets.QApplication) -> None:
     pal.setColor(QtGui.QPalette.Text, c(INK))
     pal.setColor(QtGui.QPalette.Button, c(BG_PANEL))
     pal.setColor(QtGui.QPalette.ButtonText, c(INK))
-    pal.setColor(QtGui.QPalette.ToolTipBase, c(BG_ELEV))
+    pal.setColor(QtGui.QPalette.ToolTipBase, c("#ffffff"))
     pal.setColor(QtGui.QPalette.ToolTipText, c(INK))
     pal.setColor(QtGui.QPalette.Highlight, c(ACCENT))
     pal.setColor(QtGui.QPalette.HighlightedText, c("#ffffff"))
@@ -78,11 +78,11 @@ QMainWindow, QWidget {{ background: {BG_WINDOW}; color: {INK}; }}
 QToolBar {{ background: {BG_PANEL}; border: 0; border-bottom: 1px solid {BORDER}; spacing: 4px; padding: 3px; }}
 QToolBar QToolButton {{ padding: 4px 8px; border-radius: 4px; color: {INK}; }}
 QToolBar QToolButton:hover {{ background: {BG_ELEV}; }}
-QToolBar QToolButton:pressed {{ background: {ACCENT}; }}
+QToolBar QToolButton:pressed {{ background: {ACCENT}; color: #fff; }}
 
 QMenuBar {{ background: {BG_PANEL}; color: {INK}; border-bottom: 1px solid {BORDER}; }}
 QMenuBar::item:selected {{ background: {BG_ELEV}; }}
-QMenu {{ background: {BG_PANEL}; color: {INK}; border: 1px solid {BORDER}; }}
+QMenu {{ background: #ffffff; color: {INK}; border: 1px solid {BORDER}; }}
 QMenu::item:selected {{ background: {ACCENT}; color: #fff; }}
 
 QDockWidget {{ color: {INK_DIM}; titlebar-close-icon: none; titlebar-normal-icon: none; }}
@@ -103,9 +103,9 @@ QTreeView::item:hover, QListView::item:hover, QTableView::item:hover {{ backgrou
 QHeaderView::section {{ background: {BG_PANEL}; color: {INK_DIM}; padding: 5px; border: 0;
     border-right: 1px solid {BORDER}; border-bottom: 1px solid {BORDER}; }}
 
-QPushButton {{ background: {BG_ELEV}; color: {INK}; border: 1px solid {BORDER}; border-radius: 4px;
+QPushButton {{ background: {BG_BASE}; color: {INK}; border: 1px solid {BORDER}; border-radius: 4px;
     padding: 5px 12px; }}
-QPushButton:hover {{ background: #313640; }}
+QPushButton:hover {{ background: {BG_ELEV}; }}
 QPushButton:pressed {{ background: {ACCENT}; color: #fff; }}
 QPushButton#primary {{ background: {ACCENT}; color: #fff; border: 0; }}
 QPushButton#primary:hover {{ background: #4a94ef; }}
@@ -113,7 +113,8 @@ QPushButton#primary:hover {{ background: #4a94ef; }}
 QComboBox, QLineEdit, QSpinBox {{ background: {BG_BASE}; color: {INK}; border: 1px solid {BORDER};
     border-radius: 4px; padding: 4px 8px; }}
 QComboBox:hover, QLineEdit:hover {{ border-color: {INK_FAINT}; }}
-QComboBox QAbstractItemView {{ background: {BG_PANEL}; color: {INK}; selection-background-color: {ACCENT}; }}
+QComboBox QAbstractItemView {{ background: #ffffff; color: {INK}; selection-background-color: {ACCENT};
+    selection-color: #fff; }}
 
 QCheckBox {{ spacing: 6px; }}
 QLabel#h1 {{ font-size: 17px; font-weight: 600; color: {INK}; }}

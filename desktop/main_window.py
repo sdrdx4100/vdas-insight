@@ -94,6 +94,8 @@ class MainWindow(QtWidgets.QMainWindow):
         m_file = mb.addMenu("ファイル(&F)")
         act_reg = m_file.addAction("データセットを登録…")
         act_reg.triggered.connect(self.dataset_panel.register_dialog)
+        act_manage = m_file.addAction("データ管理（一括タグ・削除）…")
+        act_manage.triggered.connect(self._open_manage)
         m_file.addSeparator()
         act_quit = m_file.addAction("終了")
         act_quit.triggered.connect(self.close)
@@ -114,9 +116,15 @@ class MainWindow(QtWidgets.QMainWindow):
         a_reg.triggered.connect(self.dataset_panel.register_dialog)
         a_auto = tb.addAction("役割を自動推定")
         a_auto.triggered.connect(self.properties_panel._autodetect)
+        a_manage = tb.addAction("🗂 データ管理")
+        a_manage.triggered.connect(self._open_manage)
         tb.addSeparator()
         a_cmp = tb.addAction("コホート比較へ")
         a_cmp.triggered.connect(lambda: self.tabs.setCurrentWidget(self.cohort))
+
+    def _open_manage(self):
+        from .panels.manage_dialog import ManageDialog
+        ManageDialog(self.state, self).exec()
 
     def _build_statusbar(self):
         sb = self.statusBar()

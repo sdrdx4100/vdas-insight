@@ -136,6 +136,45 @@ def test_derived_acceleration_and_jerk(make_dataset):
     assert abs(np.nanmedian(j[5:-5])) < 0.05
 
 
+def test_tag_categories_and_and_matching(make_dataset):
+    from vdas import tags
+
+    # three datasets with maker/condition combinations
+    def mk(name):
+        df = pd.DataFrame({"t": np.arange(3.0), "vehicle_speed_kph": [0, 10, 20]})
+        return make_dataset(df, name, {"t": "time", "vehicle_speed_kph": "speed"})
+
+    d1, d2, d3 = mk("d1"), mk("d2"), mk("d3")
+    mA = tags.create("A", category="maker").id
+    mB = tags.create("B", category="maker").id
+    hwy = tags.create("hwy", category="cond").id
+
+    tags.assign(d1.id, mA); tags.assign(d1.id, hwy)
+    tags.assign(d2.id, mB); tags.assign(d2.id, hwy)
+    tags.assign(d3.id, mA)               # A but not hwy
+
+    assert tags.list_categories() == ["cond", "maker"]
+    assert {t.name for t in tags.tags_in_category("maker")} == {"A", "B"}
+    # A AND hwy -> only d1 (d3 is A but not hwy)
+    assert tags.dataset_ids_matching_all([mA, hwy]) == [d1.id]
+    # empty filter -> all datasets
+    assert set(tags.dataset_ids_matching_all([])) >= {d1.id, d2.id, d3.id}
+
+
+def test_cohort_from_dataset_ids(make_dataset):
+    from vdas.analysis import groups
+
+    def mk(name, gears):
+        df = pd.DataFrame({"t": np.arange(len(gears), dtype=float), "g": gears})
+        return make_dataset(df, name, {"t": "time", "g": "gear"})
+
+    a = mk("ca", [1, 2, 3])       # 2 shifts
+    b = mk("cb", [1, 1, 2])       # 1 shift
+    c = groups.build_cohort_from("grp", [a.id, b.id])
+    assert c.pool["shift_count"] == 3
+    assert c.label == "grp" and set(c.dataset_ids) == {a.id, b.id}
+
+
 def test_derived_persist_and_delete(make_dataset):
     from vdas import derived
 

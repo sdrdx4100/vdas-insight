@@ -1,17 +1,31 @@
-"""Cohort comparison view — compare tags on rate-normalized metrics."""
+"""Cohort comparison view.
+
+Compare tagged cohorts on rate-normalized metrics. Cohorts can be defined two
+ways, and both can be narrowed by an AND-filter so that different N compares
+fairly:
+
+  * **タグごと** — each selected tag becomes a cohort.
+  * **カテゴリで分割** — a tag category (e.g. メーカー) is split into one cohort
+    per tag in it.
+
+The **絞り込み (AND)** selection restricts every cohort to datasets that carry
+*all* the chosen filter tags (e.g. compare makers *within* highway driving).
+"""
 from __future__ import annotations
 
-import numpy as np
 from PySide6 import QtCore, QtWidgets
 
 from vdas import datasets as ds_mod
 from vdas import tags as tags_mod
 from vdas.analysis import groups
-from vdas.analysis.groups import CORE_METRICS, flag_metric_defs
+from vdas.analysis.groups import CORE_METRICS, CohortDef, flag_metric_defs
 from .. import theme
 from ..state import AppState
 from ..widgets.charts import BarChart
 from ..widgets.common import section_label
+
+_MODE_TAGS = "タグごと"
+_MODE_CATEGORY = "カテゴリで分割"
 
 
 class CohortView(QtWidgets.QWidget):
@@ -24,12 +38,32 @@ class CohortView(QtWidgets.QWidget):
 
         # --- controls -------------------------------------------------------
         ctl = QtWidgets.QHBoxLayout()
-        ctl.addWidget(QtWidgets.QLabel("コホート:"))
-        self.tag_list = QtWidgets.QListWidget()
-        self.tag_list.setFixedHeight(78)
-        self.tag_list.setFixedWidth(240)
-        self.tag_list.setFlow(QtWidgets.QListView.TopToBottom)
-        ctl.addWidget(self.tag_list)
+
+        mode_box = QtWidgets.QVBoxLayout()
+        mode_box.addWidget(QtWidgets.QLabel("作り方"))
+        self.mode_combo = QtWidgets.QComboBox()
+        self.mode_combo.addItems([_MODE_TAGS, _MODE_CATEGORY])
+        mode_box.addWidget(self.mode_combo)
+        self.cat_combo = QtWidgets.QComboBox()
+        self.cat_combo.setMinimumWidth(120)
+        mode_box.addWidget(self.cat_combo)
+        mode_box.addStretch(1)
+        ctl.addLayout(mode_box)
+
+        coh_box = QtWidgets.QVBoxLayout()
+        self.coh_label = QtWidgets.QLabel("コホートにするタグ")
+        coh_box.addWidget(self.coh_label)
+        self.cohort_list = QtWidgets.QListWidget()
+        self.cohort_list.setFixedSize(200, 92)
+        coh_box.addWidget(self.cohort_list)
+        ctl.addLayout(coh_box)
+
+        flt_box = QtWidgets.QVBoxLayout()
+        flt_box.addWidget(QtWidgets.QLabel("絞り込み (AND)"))
+        self.filter_list = QtWidgets.QListWidget()
+        self.filter_list.setFixedSize(200, 92)
+        flt_box.addWidget(self.filter_list)
+        ctl.addLayout(flt_box)
 
         form = QtWidgets.QFormLayout()
         self.metric_combo = QtWidgets.QComboBox(); self.metric_combo.setMinimumWidth(240)
@@ -44,6 +78,7 @@ class CohortView(QtWidgets.QWidget):
         self.btn_refresh.setObjectName("primary")
         self.btn_export = QtWidgets.QPushButton("CSV 出力")
         btns.addWidget(self.btn_refresh); btns.addWidget(self.btn_export)
+        btns.addStretch(1)
         ctl.addLayout(btns)
         lay.addLayout(ctl)
 
@@ -67,74 +102,113 @@ class CohortView(QtWidgets.QWidget):
         lay.addWidget(section_label("比較テーブル"))
         self.table = QtWidgets.QTableWidget(0, 0)
         self.table.verticalHeader().setVisible(False)
-        self.table.setMaximumHeight(180)
+        self.table.setMaximumHeight(170)
         lay.addWidget(self.table)
 
         self.btn_refresh.clicked.connect(self.rebuild)
         self.btn_export.clicked.connect(self._export)
-        self.tag_list.itemChanged.connect(self._on_change)
+        self.mode_combo.currentIndexChanged.connect(self._mode_changed)
+        self.cat_combo.currentIndexChanged.connect(self.rebuild)
+        self.cohort_list.itemChanged.connect(self.rebuild)
+        self.filter_list.itemChanged.connect(self.rebuild)
         self.metric_combo.currentIndexChanged.connect(self._draw)
         self.base_combo.currentIndexChanged.connect(self._draw)
         self.state.tagsChanged.connect(self.reload_tags)
         self.state.datasetsChanged.connect(self.reload_tags)
         self._df = None
         self._cohorts = []
+        self._defs = {}
+        self._first_load = True
         self.reload_tags()
+        self._mode_changed()
 
     # ---------------------------------------------------------------- tags
-    def reload_tags(self):
-        checked = set(self._checked_tag_ids())
-        self.tag_list.blockSignals(True)
-        self.tag_list.clear()
+    def _fill_checklist(self, widget, keep: set[int]):
+        widget.blockSignals(True)
+        widget.clear()
         for t in tags_mod.list_tags():
-            it = QtWidgets.QListWidgetItem(f"{t.name} ({t.dataset_count})")
+            label = f"[{t.category}] {t.name} ({t.dataset_count})" if t.category \
+                else f"{t.name} ({t.dataset_count})"
+            it = QtWidgets.QListWidgetItem(label)
             it.setData(QtCore.Qt.UserRole, t.id)
             it.setFlags(QtCore.Qt.ItemIsUserCheckable | QtCore.Qt.ItemIsEnabled)
-            default_on = t.id in checked or (not checked)
-            it.setCheckState(QtCore.Qt.Checked if default_on else QtCore.Qt.Unchecked)
-            self.tag_list.addItem(it)
-        self.tag_list.blockSignals(False)
+            it.setCheckState(QtCore.Qt.Checked if t.id in keep else QtCore.Qt.Unchecked)
+            widget.addItem(it)
+        widget.blockSignals(False)
+
+    def reload_tags(self):
+        # First time, pre-check all tags as cohorts so the view shows something.
+        if getattr(self, "_first_load", False):
+            cohort_keep = {t.id for t in tags_mod.list_tags()}
+            self._first_load = False
+        else:
+            cohort_keep = set(self._checked(self.cohort_list))
+        self._fill_checklist(self.cohort_list, cohort_keep)
+        self._fill_checklist(self.filter_list, set(self._checked(self.filter_list)))
+        cur = self.cat_combo.currentText()
+        self.cat_combo.blockSignals(True)
+        self.cat_combo.clear()
+        self.cat_combo.addItems(tags_mod.list_categories())
+        if cur:
+            self.cat_combo.setCurrentText(cur)
+        self.cat_combo.blockSignals(False)
         self.rebuild()
 
-    def _checked_tag_ids(self):
-        ids = []
-        for i in range(self.tag_list.count()):
-            it = self.tag_list.item(i)
-            if it.checkState() == QtCore.Qt.Checked:
-                ids.append(it.data(QtCore.Qt.UserRole))
-        return ids
+    def _checked(self, widget) -> list[int]:
+        return [widget.item(i).data(QtCore.Qt.UserRole)
+                for i in range(widget.count())
+                if widget.item(i).checkState() == QtCore.Qt.Checked]
 
-    def _on_change(self, *_):
+    def _mode_changed(self):
+        cat_mode = self.mode_combo.currentText() == _MODE_CATEGORY
+        self.cat_combo.setVisible(cat_mode)
+        self.cohort_list.setVisible(not cat_mode)
+        self.coh_label.setVisible(not cat_mode)
         self.rebuild()
 
     # ------------------------------------------------------------- compute
+    def _build_defs(self) -> list[CohortDef]:
+        filter_ids = self._checked(self.filter_list)
+        defs: list[CohortDef] = []
+        if self.mode_combo.currentText() == _MODE_CATEGORY:
+            cat = self.cat_combo.currentText()
+            src_tags = tags_mod.tags_in_category(cat) if cat else []
+        else:
+            checked = set(self._checked(self.cohort_list))
+            src_tags = [t for t in tags_mod.list_tags() if t.id in checked]
+        for t in src_tags:
+            ids = tags_mod.dataset_ids_matching_all(filter_ids + [t.id])
+            defs.append(CohortDef(t.name, ids, t.color))
+        return defs
+
     def rebuild(self):
-        tag_ids = self._checked_tag_ids()
-        if not tag_ids:
-            self.msg.setText("比較するコホート（タグ）を選択してください。")
-            self.bar.plot.clear(); self.idx.plot.clear()
-            self.table.setRowCount(0)
+        defs = self._build_defs()
+        if not defs:
+            self.msg.setText("比較するコホートを選択してください"
+                             "（『タグごと』ならタグ、『カテゴリで分割』ならカテゴリ）。")
+            self.bar.plot.clear(); self.idx.plot.clear(); self.table.setRowCount(0)
+            self._df = None
             return
-        # available metrics from flags present in selected cohorts
+
         flag_cols = set()
-        for tid in tag_ids:
-            for did in tags_mod.dataset_ids_for_tag(tid):
+        for d in defs:
+            for did in d.dataset_ids:
                 flag_cols.update(ds_mod.flag_columns(did))
-        defs = list(CORE_METRICS)
+        metric_defs = list(CORE_METRICS)
         for fc in sorted(flag_cols):
-            defs += flag_metric_defs(fc)
-        self._defs = {m.key: m for m in defs}
+            metric_defs += flag_metric_defs(fc)
+        self._defs = {m.key: m for m in metric_defs}
 
         cur_key = self.metric_combo.currentData() or "shifts_per_hour"
         self.metric_combo.blockSignals(True)
         self.metric_combo.clear()
-        for m in defs:
+        for m in metric_defs:
             self.metric_combo.addItem(f"{m.label}  [{m.unit}]", m.key)
         i = self.metric_combo.findData(cur_key)
         self.metric_combo.setCurrentIndex(i if i >= 0 else 0)
         self.metric_combo.blockSignals(False)
 
-        self._df, self._cohorts = groups.compare(tag_ids, [m.key for m in defs])
+        self._df, self._cohorts = groups.compare_defs(defs, [m.key for m in metric_defs])
         self.base_combo.blockSignals(True)
         cur_base = self.base_combo.currentText()
         self.base_combo.clear()
@@ -143,8 +217,12 @@ class CohortView(QtWidgets.QWidget):
             self.base_combo.setCurrentText(cur_base)
         self.base_combo.blockSignals(False)
 
-        self.msg.setText(
-            "※ N（データ数）や総時間が異なるため、レート/割合で公平に比較します。")
+        filt = self._checked(self.filter_list)
+        fnote = ""
+        if filt:
+            names = [t.name for t in tags_mod.list_tags() if t.id in filt]
+            fnote = f"　絞り込み: {' AND '.join(names)}"
+        self.msg.setText("※ N や総時間が異なるため、レート/割合で公平に比較します。" + fnote)
         self._fill_table()
         self._draw()
 
@@ -158,7 +236,7 @@ class CohortView(QtWidgets.QWidget):
         df = self._df
         scale = 100.0 if mdef.is_percent else 1.0
         vals = (df[key].astype(float) * scale).tolist()
-        colors = [theme.series_color(i) for i in range(len(df))]
+        colors = [c.color or theme.series_color(i) for i, c in enumerate(self._cohorts)]
         spreads = None
         if mdef.kind not in ("duration",):
             spreads = []
@@ -169,7 +247,6 @@ class CohortView(QtWidgets.QWidget):
         self.bar.set_data(df["tag"].tolist(), vals, colors=colors,
                           value_fmt="{:.2f}", scatter=spreads)
 
-        # relative index
         base = self.base_combo.currentText() or None
         idx = groups.relative_index(df, key, base_tag=base)
         self.idx.set_data(idx.index.tolist(), idx.values.tolist(), colors=colors,
@@ -177,8 +254,8 @@ class CohortView(QtWidgets.QWidget):
 
     def _fill_table(self):
         df = self._df
-        keys = [m for m in self._defs]
-        headers = ["tag", "N", "時間(h)"] + [self._defs[k].label for k in keys]
+        keys = list(self._defs)
+        headers = ["cohort", "N", "時間(h)"] + [self._defs[k].label for k in keys]
         self.table.setColumnCount(len(headers))
         self.table.setHorizontalHeaderLabels(headers)
         self.table.setRowCount(len(df))

@@ -62,7 +62,8 @@ class BarChart(pg.GraphicsLayoutWidget):
         ax = self.plot.getAxis("bottom")
         ax.setTicks([list(zip(x.tolist(), labels))])
         self.plot.setLabel("left", self._ylabel, color=theme.INK_DIM)
-        vmax = np.nanmax(vals) if len(vals) and np.isfinite(np.nanmax(vals)) else 1
+        finite = vals[np.isfinite(vals)] if len(vals) else vals
+        vmax = float(finite.max()) if len(finite) else 1.0
         self.plot.setYRange(0, vmax * 1.18 if vmax > 0 else 1)
 
 

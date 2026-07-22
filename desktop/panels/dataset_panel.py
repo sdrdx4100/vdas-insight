@@ -99,13 +99,12 @@ class DatasetPanel(QtWidgets.QWidget):
         if not paths:
             return
         existing = {d.path for d in ds_mod.list_datasets()}
-        n = 0
+        new_ids = []
         for p in paths:
             if os.path.abspath(p) in existing:
                 continue
             try:
-                ds_mod.register(p)
-                n += 1
+                new_ids.append(ds_mod.register(p).id)
             except Exception as e:  # noqa: BLE001
                 QtWidgets.QMessageBox.warning(self, "登録エラー", f"{p}\n{e}")
         if tag_by_regime:
@@ -113,7 +112,23 @@ class DatasetPanel(QtWidgets.QWidget):
         services.invalidate()
         self.state.datasetsChanged.emit()
         self.state.tagsChanged.emit()
-        QtWidgets.QMessageBox.information(self, "登録完了", f"{n} 件を登録しました。")
+        # Offer to bulk-tag the freshly registered datasets at load time.
+        if new_ids and not tag_by_regime:
+            self._tag_new(new_ids)
+        else:
+            QtWidgets.QMessageBox.information(self, "登録完了", f"{len(new_ids)} 件を登録しました。")
+
+    def _tag_new(self, dataset_ids):
+        from .tag_pick_dialog import TagPickDialog
+        dlg = TagPickDialog(
+            "登録したデータにタグを付与",
+            f"{len(dataset_ids)} 件を登録しました。まとめて付与するタグを選択できます"
+            "（メーカー・走行条件など。後から『データ管理』でも変更可）。", self)
+        if dlg.exec() == QtWidgets.QDialog.Accepted and dlg.selected_ids:
+            for did in dataset_ids:
+                for tid in dlg.selected_ids:
+                    tags_mod.assign(did, tid)
+            self.state.tagsChanged.emit()
 
     def _auto_tag(self):
         by = {t.name: t.id for t in tags_mod.list_tags()}

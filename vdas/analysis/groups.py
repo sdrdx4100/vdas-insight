@@ -24,7 +24,7 @@ import pandas as pd
 from .. import datasets as ds_mod
 from .. import tags as tags_mod
 from .core import prepare
-from .metrics import base_quantities, dataset_metrics, derived_from_pool
+from .metrics import base_quantities, derived_from_pool, metrics_from_prepared
 
 
 # --------------------------------------------------------------------------- #
@@ -68,10 +68,12 @@ def flag_metric_defs(flag_col: str) -> list[MetricDef]:
 # --------------------------------------------------------------------------- #
 @dataclass
 class Cohort:
-    tag: tags_mod.Tag
+    label: str                                   # display name
+    dataset_ids: list[int]                        # members
     pool: dict                                   # pooled extensive + derived rates
     per_dataset: pd.DataFrame                    # one row per dataset, full metrics
     flag_cols: list[str] = field(default_factory=list)
+    color: str | None = None
 
     def value(self, key: str) -> float:
         return float(self.pool.get(key, np.nan))
@@ -82,51 +84,78 @@ class Cohort:
         return np.array([], dtype=float)
 
 
-def build_cohort(tag_id: int) -> Cohort:
-    tag = tags_mod.get_tag(tag_id)
-    ds_ids = tags_mod.dataset_ids_for_tag(tag_id)
-
+def build_cohort_from(label: str, dataset_ids: list[int],
+                      color: str | None = None) -> Cohort:
+    """Pool metrics over an explicit set of datasets (the core builder)."""
     pool: dict = {}
     rows = []
     flag_cols: set[str] = set()
-    for did in ds_ids:
+    used: list[int] = []
+    for did in dataset_ids:
         ds = ds_mod.get_dataset(did)
         if ds is None or not ds.exists:
             continue
-        pd_data = prepare(ds)
+        used.append(did)
+        pd_data = prepare(ds)          # single read; reused for both below
         flag_cols.update(pd_data.flag_cols)
-        # pool extensive quantities
         q = base_quantities(pd_data)
         for k, v in q.items():
             if v is None or (isinstance(v, float) and np.isnan(v)):
                 continue
             pool[k] = pool.get(k, 0.0) + v
-        # per-dataset full metric row
-        m = dataset_metrics(ds)
+        m = metrics_from_prepared(pd_data)
         m["dataset_id"] = ds.id
         m["dataset_name"] = ds.name
         rows.append(m)
 
     pool.update(derived_from_pool(pool))
     per_df = pd.DataFrame(rows) if rows else pd.DataFrame()
-    return Cohort(tag=tag, pool=pool, per_dataset=per_df, flag_cols=sorted(flag_cols))
+    return Cohort(label=label, dataset_ids=used, pool=pool,
+                  per_dataset=per_df, flag_cols=sorted(flag_cols), color=color)
+
+
+def build_cohort(tag_id: int) -> Cohort:
+    """Build a cohort from a single tag (backwards-compatible helper)."""
+    tag = tags_mod.get_tag(tag_id)
+    label = tag.name if tag else f"tag {tag_id}"
+    color = tag.color if tag else None
+    return build_cohort_from(label, tags_mod.dataset_ids_for_tag(tag_id), color)
 
 
 # --------------------------------------------------------------------------- #
 #  Comparison
 # --------------------------------------------------------------------------- #
-def compare(tag_ids: list[int], metric_keys: list[str]) -> tuple[pd.DataFrame, list[Cohort]]:
-    """Return a tidy comparison table of cohorts × metrics (pooled values)."""
-    cohorts = [build_cohort(tid) for tid in tag_ids]
+@dataclass
+class CohortDef:
+    label: str
+    dataset_ids: list[int]
+    color: str | None = None
+
+
+def compare_defs(defs: list[CohortDef],
+                 metric_keys: list[str]) -> tuple[pd.DataFrame, list[Cohort]]:
+    """Compare arbitrary cohort definitions (label + dataset set) on metrics."""
+    cohorts = [build_cohort_from(d.label, d.dataset_ids, d.color) for d in defs]
     records = []
     for c in cohorts:
-        rec = {"tag": c.tag.name, "tag_id": c.tag.id,
+        rec = {"tag": c.label,
                "n_datasets": int(c.pool.get("n_datasets", 0)),
                "duration_h": c.pool.get("duration_s", 0.0) / 3600.0}
         for key in metric_keys:
             rec[key] = c.value(key)
         records.append(rec)
     return pd.DataFrame(records), cohorts
+
+
+def compare(tag_ids: list[int], metric_keys: list[str]) -> tuple[pd.DataFrame, list[Cohort]]:
+    """Compare one-tag cohorts (backwards-compatible)."""
+    defs = []
+    for tid in tag_ids:
+        t = tags_mod.get_tag(tid)
+        defs.append(CohortDef(t.name if t else f"tag {tid}",
+                              tags_mod.dataset_ids_for_tag(tid),
+                              t.color if t else None))
+    return compare_defs(defs, metric_keys)
 
 
 def relative_index(df: pd.DataFrame, metric_key: str, base_tag: str | None = None) -> pd.Series:

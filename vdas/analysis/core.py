@@ -7,6 +7,7 @@ Everything downstream (metrics, gears, flags) consumes a ``PreparedData``.
 """
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -70,8 +71,40 @@ def _median_dt(t: np.ndarray) -> float:
     return float(np.median(d)) if len(d) else 0.0
 
 
+#: Self-invalidating cache of full prepared frames, keyed by dataset id. The
+#: signature folds in file mtime + roles + derived-signal definitions, so any
+#: change produces a new key and a fresh build without explicit invalidation.
+_PREP_CACHE: dict[int, tuple] = {}
+
+
+def _prep_signature(dataset: Dataset) -> tuple:
+    from .. import derived
+    try:
+        mtime = os.path.getmtime(dataset.path)
+    except OSError:
+        mtime = 0.0
+    roles = tuple(sorted(ds_mod.get_roles(dataset.id).items()))
+    params = tuple(sorted(
+        (k, tuple(sorted((v or {}).items())))
+        for k, v in ds_mod.get_role_params(dataset.id).items()))
+    dsig = tuple((d.name, d.kind, d.source,
+                  tuple(sorted((d.params or {}).items())))
+                 for d in derived.list_for_dataset(dataset.id))
+    return (mtime, roles, params, dsig)
+
+
 def prepare(dataset: Dataset, columns: list[str] | None = None) -> PreparedData:
-    """Build a PreparedData for a dataset (optionally restricting columns)."""
+    """Build a PreparedData for a dataset (optionally restricting columns).
+
+    Full-load results (``columns is None``) are cached until the file, roles or
+    derived-signal definitions change.
+    """
+    if columns is None:
+        sig = _prep_signature(dataset)
+        hit = _PREP_CACHE.get(dataset.id)
+        if hit is not None and hit[0] == sig:
+            return hit[1]
+
     time_col = ds_mod.time_column(dataset.id)
     gear_col = ds_mod.gear_column(dataset.id)
     speed_col = ds_mod.speed_column(dataset.id)
@@ -110,8 +143,11 @@ def prepare(dataset: Dataset, columns: list[str] | None = None) -> PreparedData:
         if name not in numeric_cols:
             numeric_cols.append(name)
 
-    return PreparedData(
+    result = PreparedData(
         dataset=dataset, df=df, time_col=time_col, t=t, dt=dt,
         duration_s=duration_s, gear_col=gear_col, speed_col=speed_col,
         flag_cols=flag_cols, numeric_cols=numeric_cols,
     )
+    if columns is None:
+        _PREP_CACHE[dataset.id] = (sig, result)
+    return result

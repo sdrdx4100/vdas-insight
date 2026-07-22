@@ -48,9 +48,8 @@ def base_quantities(pd_data: PreparedData) -> dict:
     return q
 
 
-def dataset_metrics(dataset: Dataset) -> dict:
-    """Full flat metric dict for one dataset (for the single-dataset view)."""
-    pd_data = prepare(dataset)
+def metrics_from_prepared(pd_data) -> dict:
+    """Full flat metric dict from an already-prepared frame (no re-read)."""
     q = base_quantities(pd_data)
     m = dict(q)
     hours = pd_data.duration_h
@@ -67,6 +66,11 @@ def dataset_metrics(dataset: Dataset) -> dict:
         m[f"flag::{col}::duty_cycle"] = s["duty_cycle"]
         m[f"flag::{col}::mean_on_s"] = s["mean_on_s"]
     return m
+
+
+def dataset_metrics(dataset: Dataset) -> dict:
+    """Full flat metric dict for one dataset (for the single-dataset view)."""
+    return metrics_from_prepared(prepare(dataset))
 
 
 def derived_from_pool(pool: dict) -> dict:

@@ -49,6 +49,7 @@ CREATE TABLE IF NOT EXISTS tags (
     name         VARCHAR NOT NULL UNIQUE,
     color        VARCHAR,
     description  VARCHAR,
+    category     VARCHAR,                   -- optional dimension (メーカー / 走行条件…)
     created_at   TIMESTAMP DEFAULT now()
 );
 
@@ -78,8 +79,16 @@ def get_con() -> duckdb.DuckDBPyConnection:
             DB_PATH.parent.mkdir(parents=True, exist_ok=True)
             con = duckdb.connect(str(DB_PATH))
             con.execute(SCHEMA)
+            _migrate(con)
             _CON = con
         return _CON
+
+
+def _migrate(con: duckdb.DuckDBPyConnection) -> None:
+    """Lightweight in-place migrations for DBs created by older versions."""
+    cols = {r[1] for r in con.execute("PRAGMA table_info('tags')").fetchall()}
+    if "category" not in cols:
+        con.execute("ALTER TABLE tags ADD COLUMN category VARCHAR")
 
 
 def now() -> datetime:

@@ -16,10 +16,14 @@ class TagsPanel(QtWidgets.QWidget):
         lay.setContentsMargins(6, 6, 6, 6)
         lay.setSpacing(6)
 
-        # New-tag row
+        # New-tag row (name + category + color)
         add_row = QtWidgets.QHBoxLayout()
         self.name_edit = QtWidgets.QLineEdit()
         self.name_edit.setPlaceholderText("新しいタグ名…")
+        self.cat_edit = QtWidgets.QComboBox()
+        self.cat_edit.setEditable(True)
+        self.cat_edit.lineEdit().setPlaceholderText("カテゴリ(任意)")
+        self.cat_edit.setMinimumWidth(110)
         self.color_combo = QtWidgets.QComboBox()
         for c in TAG_COLORS:
             pm = QtGui.QPixmap(12, 12)
@@ -27,7 +31,8 @@ class TagsPanel(QtWidgets.QWidget):
             self.color_combo.addItem(QtGui.QIcon(pm), "", c)
         self.btn_create = QtWidgets.QPushButton("作成")
         self.btn_create.setObjectName("primary")
-        add_row.addWidget(self.name_edit, 1)
+        add_row.addWidget(self.name_edit, 2)
+        add_row.addWidget(self.cat_edit, 1)
         add_row.addWidget(self.color_combo)
         add_row.addWidget(self.btn_create)
         lay.addLayout(add_row)
@@ -54,7 +59,23 @@ class TagsPanel(QtWidgets.QWidget):
         self.list.clear()
         d = self.state.current_dataset()
         member = set(tags_mod.tag_ids_for_dataset(d.id)) if d else set()
+        # refresh category suggestions
+        cur_cat = self.cat_edit.currentText()
+        self.cat_edit.blockSignals(True)
+        self.cat_edit.clear()
+        self.cat_edit.addItems([""] + tags_mod.list_categories())
+        self.cat_edit.setCurrentText(cur_cat)
+        self.cat_edit.blockSignals(False)
+
+        last_cat = object()
         for t in tags_mod.list_tags():
+            cat = t.category or "（カテゴリなし）"
+            if cat != last_cat:
+                hdr = QtWidgets.QListWidgetItem(f"— {cat} —")
+                hdr.setFlags(QtCore.Qt.NoItemFlags)
+                hdr.setForeground(QtGui.QColor("#8b9099"))
+                self.list.addItem(hdr)
+                last_cat = cat
             it = QtWidgets.QListWidgetItem(f"{t.name}  ({t.dataset_count})")
             it.setData(QtCore.Qt.UserRole, t.id)
             pm = QtGui.QPixmap(12, 12)
@@ -75,7 +96,8 @@ class TagsPanel(QtWidgets.QWidget):
         if any(t.name == name for t in tags_mod.list_tags()):
             QtWidgets.QMessageBox.warning(self, "重複", "同名のタグが存在します。")
             return
-        tags_mod.create(name, self.color_combo.currentData())
+        tags_mod.create(name, self.color_combo.currentData(),
+                        category=self.cat_edit.currentText().strip() or None)
         self.name_edit.clear()
         self.state.tagsChanged.emit()
 
@@ -84,6 +106,8 @@ class TagsPanel(QtWidgets.QWidget):
         if not d:
             return
         tid = item.data(QtCore.Qt.UserRole)
+        if tid is None:
+            return
         if item.checkState() == QtCore.Qt.Checked:
             tags_mod.assign(d.id, tid)
         else:
@@ -95,6 +119,8 @@ class TagsPanel(QtWidgets.QWidget):
         if not it:
             return
         tid = it.data(QtCore.Qt.UserRole)
+        if tid is None:
+            return
         name = it.text()
         if QtWidgets.QMessageBox.question(
                 self, "タグ削除", f"タグ『{name}』を削除しますか？") == QtWidgets.QMessageBox.Yes:

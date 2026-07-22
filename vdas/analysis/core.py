@@ -102,6 +102,14 @@ def prepare(dataset: Dataset, columns: list[str] | None = None) -> PreparedData:
     flag_cols = [c for c in flag_cols if c in df.columns]
     numeric_cols = [c for c in numeric_cols if c in df.columns]
 
+    # Compute & append derived signals (acceleration, jerk, ...) as real
+    # numeric columns so they flow into plots / stats / cohort metrics.
+    from .. import derived
+    for name, values in derived.compute_all(dataset.id, df, t).items():
+        df[name] = values
+        if name not in numeric_cols:
+            numeric_cols.append(name)
+
     return PreparedData(
         dataset=dataset, df=df, time_col=time_col, t=t, dt=dt,
         duration_s=duration_s, gear_col=gear_col, speed_col=speed_col,

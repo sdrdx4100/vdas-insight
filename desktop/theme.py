@@ -37,6 +37,7 @@ ROLE_COLORS = {
     "numeric": "#178a60",
     "category": "#5a48c0",
     "ignore": "#9aa0a8",
+    "derived": "#0f9b9b",
 }
 
 

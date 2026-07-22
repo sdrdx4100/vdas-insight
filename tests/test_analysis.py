@@ -112,6 +112,41 @@ def test_cohort_pooling_uses_pooled_rate(make_dataset):
     assert c.pool["shifts_per_hour"] == pytest.approx(3.0 / pooled_hours)
 
 
+def test_derived_acceleration_and_jerk(make_dataset):
+    from vdas import derived
+    from vdas.analysis import prepare
+
+    # Constant acceleration: speed rises 0..100 km/h over 10 s.
+    n = 101
+    t = np.linspace(0, 10, n)
+    kph = np.linspace(0, 100, n)          # 10 km/h per s
+    df = pd.DataFrame({"t": t, "vehicle_speed_kph": kph})
+    ds = make_dataset(df, "accel", {"t": "time", "vehicle_speed_kph": "speed"})
+
+    derived.add(ds.id, "accel_from_speed", "vehicle_speed_kph", name="a")
+    derived.add(ds.id, "jerk_from_speed", "vehicle_speed_kph", name="j")
+    p = prepare(ds)
+    assert "a" in p.df.columns and "j" in p.df.columns
+    assert "a" in p.numeric_cols
+    # 10 (km/h)/s = 10 * 1000/3600 ≈ 2.778 m/s² (ignore smoothed edges)
+    a = p.df["a"].to_numpy()
+    assert np.nanmedian(a[5:-5]) == pytest.approx(2.7778, abs=0.05)
+    # constant acceleration -> jerk ~ 0 in the interior
+    j = p.df["j"].to_numpy()
+    assert abs(np.nanmedian(j[5:-5])) < 0.05
+
+
+def test_derived_persist_and_delete(make_dataset):
+    from vdas import derived
+
+    df = pd.DataFrame({"t": np.arange(10.0), "vehicle_speed_kph": np.arange(10.0)})
+    ds = make_dataset(df, "persist", {"t": "time", "vehicle_speed_kph": "speed"})
+    d = derived.add(ds.id, "derivative", "vehicle_speed_kph", name="spd_ddt")
+    assert "spd_ddt" in derived.names_for_dataset(ds.id)
+    derived.delete(d.id)
+    assert "spd_ddt" not in derived.names_for_dataset(ds.id)
+
+
 def test_speed_vs_engine_role_detection(make_dataset):
     from vdas import datasets
 

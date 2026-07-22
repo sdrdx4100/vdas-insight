@@ -24,11 +24,14 @@ def _drive(rng: np.random.Generator, regime: str, minutes: float, hz: float = 10
     t = np.arange(n) / hz  # seconds
 
     if regime == "city":
-        # stop-go: smooth speed profile 0..60, periodic stops
-        base = 32 + 20 * np.sin(t / 40.0) + 6 * np.sin(t / 17.0)
-        stops = (np.sin(t / 55.0) < -0.5)
-        speed = np.clip(base, 0, 62)
-        speed[stops] *= 0.03
+        # stop-go: smooth speed profile 0..60 with periodic stops. Stops are
+        # modelled as smooth decel/accel ramps (not instantaneous cliffs) so
+        # derived acceleration/jerk stay physical (~±3 m/s²).
+        base = np.clip(32 + 20 * np.sin(t / 40.0) + 6 * np.sin(t / 17.0), 0, 62)
+        raw_stop = (np.sin(t / 55.0) < -0.5).astype(float)     # 1 while stopped
+        ramp = np.ones(int(hz * 3)) / int(hz * 3)              # ~3 s ramp
+        stop_factor = np.clip(1.0 - np.convolve(raw_stop, ramp, mode="same"), 0.02, 1.0)
+        speed = base * stop_factor
         top_gear = 5
         up_thr = np.array([6, 16, 28, 42, 54], dtype=float)   # accel-side thresholds
     else:  # highway

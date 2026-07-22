@@ -115,6 +115,7 @@ def delete(dataset_id: int) -> None:
     con = db.get_con()
     con.execute("DELETE FROM column_roles WHERE dataset_id = ?", [dataset_id])
     con.execute("DELETE FROM dataset_tags WHERE dataset_id = ?", [dataset_id])
+    con.execute("DELETE FROM derived_signals WHERE dataset_id = ?", [dataset_id])
     con.execute("DELETE FROM datasets WHERE id = ?", [dataset_id])
 
 

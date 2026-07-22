@@ -8,8 +8,10 @@ from __future__ import annotations
 from PySide6 import QtCore, QtGui, QtWidgets
 
 from vdas import datasets as ds_mod
-from .. import theme
+from vdas import derived
+from .. import services, theme
 from ..state import AppState
+from .derived_dialog import DerivedDialog
 
 
 class SignalPanel(QtWidgets.QWidget):
@@ -29,11 +31,15 @@ class SignalPanel(QtWidgets.QWidget):
         self.tree.setHeaderLabels(["信号", "役割"])
         self.tree.setRootIsDecorated(True)
         self.tree.setColumnWidth(0, 180)
+        self.tree.setContextMenuPolicy(QtCore.Qt.CustomContextMenu)
         lay.addWidget(self.tree)
 
         row = QtWidgets.QHBoxLayout()
-        self.btn_none = QtWidgets.QPushButton("全解除")
+        self.btn_derive = QtWidgets.QPushButton("ƒ 派生信号…")
+        self.btn_derive.setObjectName("primary")
         self.btn_defaults = QtWidgets.QPushButton("既定選択")
+        self.btn_none = QtWidgets.QPushButton("全解除")
+        row.addWidget(self.btn_derive)
         row.addWidget(self.btn_defaults)
         row.addWidget(self.btn_none)
         row.addStretch(1)
@@ -41,8 +47,10 @@ class SignalPanel(QtWidgets.QWidget):
 
         self.filter.textChanged.connect(self._apply_filter)
         self.tree.itemChanged.connect(self._on_check)
+        self.tree.customContextMenuRequested.connect(self._context_menu)
         self.btn_none.clicked.connect(lambda: self._check_all(False))
         self.btn_defaults.clicked.connect(self._select_defaults)
+        self.btn_derive.clicked.connect(self._add_derived)
         self.state.currentDatasetChanged.connect(lambda _id: self.reload())
         self.state.rolesChanged.connect(lambda _id: self.reload())
         self.reload()
@@ -77,6 +85,24 @@ class SignalPanel(QtWidgets.QWidget):
                         it.setFlags(QtCore.Qt.ItemIsEnabled)
                     it.setData(0, QtCore.Qt.UserRole, c)
                     self._badge(it, role)
+                    grp.addChild(it)
+
+            # Derived signals (acceleration, jerk, ...) as their own group.
+            dsig = derived.list_for_dataset(d.id)
+            if dsig:
+                grp = QtWidgets.QTreeWidgetItem(["派生 (DERIVED)", ""])
+                grp.setFlags(QtCore.Qt.ItemIsEnabled)
+                grp.setForeground(0, QtGui.QColor(theme.INK_DIM))
+                self.tree.addTopLevelItem(grp)
+                grp.setExpanded(True)
+                for dv in dsig:
+                    it = QtWidgets.QTreeWidgetItem([dv.name, "derived"])
+                    it.setFlags(QtCore.Qt.ItemIsUserCheckable | QtCore.Qt.ItemIsEnabled)
+                    it.setCheckState(0, QtCore.Qt.Unchecked)
+                    it.setData(0, QtCore.Qt.UserRole, dv.name)
+                    it.setData(0, QtCore.Qt.UserRole + 1, dv.id)  # derived id
+                    it.setToolTip(0, f"{derived.KINDS[dv.kind].label}  ← {dv.source}")
+                    self._badge(it, "derived")
                     grp.addChild(it)
         self.tree.blockSignals(False)
         self._select_defaults()
@@ -138,3 +164,42 @@ class SignalPanel(QtWidgets.QWidget):
         for it in self._iter_signal_items():
             name = (it.data(0, QtCore.Qt.UserRole) or "").lower()
             it.setHidden(bool(text) and text not in name)
+
+    # --------------------------------------------------------------- derived
+    def _add_derived(self):
+        d = self.state.current_dataset()
+        if not d or not d.exists:
+            QtWidgets.QMessageBox.information(
+                self, "派生信号", "先にデータセットを選択してください。")
+            return
+        dlg = DerivedDialog(d, self)
+        if dlg.exec() == QtWidgets.QDialog.Accepted:
+            services.invalidate(d.id)
+            self.state.rolesChanged.emit(d.id)     # reload tree + rebuild views
+            self._check_by_name(getattr(dlg, "created_name", None))
+
+    def _check_by_name(self, name):
+        if not name:
+            return
+        self.tree.blockSignals(True)
+        for it in self._iter_signal_items():
+            if it.data(0, QtCore.Qt.UserRole) == name:
+                it.setCheckState(0, QtCore.Qt.Checked)
+        self.tree.blockSignals(False)
+        self._on_check()
+
+    def _context_menu(self, pos):
+        it = self.tree.itemAt(pos)
+        if it is None:
+            return
+        did = it.data(0, QtCore.Qt.UserRole + 1)
+        if did is None:
+            return                              # only derived signals carry an id
+        menu = QtWidgets.QMenu(self)
+        act_del = menu.addAction("この派生信号を削除")
+        if menu.exec(self.tree.viewport().mapToGlobal(pos)) == act_del:
+            derived.delete(int(did))
+            d = self.state.current_dataset()
+            if d:
+                services.invalidate(d.id)
+                self.state.rolesChanged.emit(d.id)

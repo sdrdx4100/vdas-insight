@@ -24,6 +24,7 @@ _CON: duckdb.DuckDBPyConnection | None = None
 SCHEMA = """
 CREATE SEQUENCE IF NOT EXISTS seq_dataset_id START 1;
 CREATE SEQUENCE IF NOT EXISTS seq_tag_id START 1;
+CREATE SEQUENCE IF NOT EXISTS seq_derived_id START 1;
 
 CREATE TABLE IF NOT EXISTS datasets (
     id           BIGINT PRIMARY KEY DEFAULT nextval('seq_dataset_id'),
@@ -55,6 +56,16 @@ CREATE TABLE IF NOT EXISTS dataset_tags (
     dataset_id   BIGINT NOT NULL,
     tag_id       BIGINT NOT NULL,
     PRIMARY KEY (dataset_id, tag_id)
+);
+
+CREATE TABLE IF NOT EXISTS derived_signals (
+    id           BIGINT PRIMARY KEY DEFAULT nextval('seq_derived_id'),
+    dataset_id   BIGINT NOT NULL,
+    name         VARCHAR NOT NULL,        -- output signal name (unique per dataset)
+    kind         VARCHAR NOT NULL,        -- registry key (see vdas.derived)
+    source       VARCHAR,                 -- source column (file col or another derived)
+    params       JSON,                    -- kind-specific (window_s, ...)
+    ordinal      BIGINT DEFAULT 0         -- evaluation order
 );
 """
 

@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+
+# VDAS-Insight runtime data (user-registered datasets, tags DB, uploads)
+/data/
+*.duckdb
+*.duckdb.wal
+
+# Test / tooling caches
+.pytest_cache/
+.ruff_cache/
+
+# Streamlit
+.streamlit/secrets.toml
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/

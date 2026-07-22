@@ -1,0 +1,13 @@
+# VDAS-Insight Streamlit theme — matches the chart palette.
+[theme]
+primaryColor = "#2a78d6"
+backgroundColor = "#ffffff"
+secondaryBackgroundColor = "#f4f4f2"
+textColor = "#0b0b0b"
+font = "sans serif"
+
+[server]
+maxUploadSize = 2048       # allow large preprocessed logs (MB)
+
+[browser]
+gatherUsageStats = false

@@ -1,0 +1,127 @@
+"""Unit tests for the VDAS-Insight analysis engine.
+
+These use tiny hand-built datasets with known answers, so the metrics are
+verified by construction rather than by eyeballing charts.
+"""
+from __future__ import annotations
+
+import numpy as np
+import pandas as pd
+import pytest
+
+
+@pytest.fixture
+def make_dataset(tmp_path):
+    """Factory: write a DataFrame to parquet, register it, return the Dataset."""
+    from vdas import datasets
+
+    def _make(df: pd.DataFrame, name: str, roles: dict | None = None,
+              params: dict | None = None):
+        path = tmp_path / f"{name}.parquet"
+        df.to_parquet(path, index=False)
+        ds = datasets.register(str(path), name=name)
+        if roles:
+            datasets.set_roles(ds.id, roles, params)
+        return ds
+
+    return _make
+
+
+def test_shift_detection_counts_transitions(make_dataset):
+    from vdas.analysis import gears, prepare
+
+    # gear sequence: 1 1 2 2 2 3 2 1  -> 4 transitions (2 up, 2 down)
+    seq = [1, 1, 2, 2, 2, 3, 2, 1]
+    df = pd.DataFrame({"t": np.arange(len(seq), dtype=float), "current_gear": seq})
+    ds = make_dataset(df, "gears", {"t": "time", "current_gear": "gear"})
+    p = prepare(ds)
+    s = gears.summary(p)
+    assert s["shift_count"] == 4
+    assert s["upshifts"] == 2
+    assert s["downshifts"] == 2
+
+
+def test_shift_count_ignores_repeats(make_dataset):
+    from vdas.analysis import gears, prepare
+
+    seq = [3, 3, 3, 3]  # constant -> no shifts
+    df = pd.DataFrame({"t": np.arange(4.0), "current_gear": seq})
+    ds = make_dataset(df, "const_gear", {"t": "time", "current_gear": "gear"})
+    assert gears.summary(prepare(ds))["shift_count"] == 0
+
+
+def test_time_in_gear_shares_sum_to_one(make_dataset):
+    from vdas.analysis import gears, prepare
+
+    seq = [1, 1, 2, 2]
+    df = pd.DataFrame({"t": np.arange(4.0), "current_gear": seq})
+    ds = make_dataset(df, "tig", {"t": "time", "current_gear": "gear"})
+    tig = gears.time_in_gear(prepare(ds))
+    assert abs(tig["share"].sum() - 1.0) < 1e-9
+
+
+def test_flag_intervals(make_dataset):
+    from vdas.analysis import flags, prepare
+
+    # 1 Hz sampling; ON blocks: samples 2-3 and 6-7 => 2 activations.
+    flag = [0, 0, 1, 1, 0, 0, 1, 1, 0, 0]
+    df = pd.DataFrame({"t": np.arange(len(flag), dtype=float), "f": flag})
+    ds = make_dataset(df, "flags", {"t": "time", "f": "flag"})
+    p = prepare(ds)
+    d = flags.intervals(p, "f")
+    assert d["activations"] == 2
+    # each ON run spans 2 s (from its start to the next sample after it ends)
+    assert d["on_durations"].tolist() == pytest.approx([2.0, 2.0])
+    # between activations: onset at t=2 and t=6 -> 4 s
+    assert d["between_activations"].tolist() == pytest.approx([4.0])
+
+
+def test_time_unit_scaling(make_dataset):
+    from vdas.analysis import prepare
+
+    # times in milliseconds; 0..9000 ms => 9 s duration
+    df = pd.DataFrame({"t_ms": np.arange(10, dtype=float) * 1000.0,
+                       "x": np.arange(10.0)})
+    ds = make_dataset(df, "ms", {"t_ms": "time", "x": "numeric"},
+                      {"t_ms": {"unit": "ms"}})
+    p = prepare(ds)
+    assert p.duration_s == pytest.approx(9.0)
+
+
+def test_cohort_pooling_uses_pooled_rate(make_dataset):
+    """A cohort's pooled rate must weight by duration, not average per-dataset."""
+    from vdas import tags
+    from vdas.analysis import groups
+
+    # Dataset A: 2 shifts over 1 s (huge rate but tiny). B: 2 shifts over 3600 s.
+    a = pd.DataFrame({"t": [0.0, 1.0], "current_gear": [1, 2]})
+    # B: gear toggles twice across an hour
+    tb = np.linspace(0, 3600, 5)
+    b = pd.DataFrame({"t": tb, "current_gear": [1, 2, 2, 3, 3]})
+    dsa = make_dataset(a, "A", {"t": "time", "current_gear": "gear"})
+    dsb = make_dataset(b, "B", {"t": "time", "current_gear": "gear"})
+
+    tid = tags.create("cohort").id
+    tags.assign(dsa.id, tid)
+    tags.assign(dsb.id, tid)
+
+    c = groups.build_cohort(tid)
+    # pooled shift_count = 1 (A) + 2 (B) = 3 ; pooled hours = (1 + 3600)/3600
+    assert c.pool["shift_count"] == pytest.approx(3.0)
+    pooled_hours = (1.0 + 3600.0) / 3600.0
+    assert c.pool["shifts_per_hour"] == pytest.approx(3.0 / pooled_hours)
+
+
+def test_speed_vs_engine_role_detection(make_dataset):
+    from vdas import datasets
+
+    df = pd.DataFrame({
+        "timestamp_s": np.arange(5.0),
+        "vehicle_speed_kph": [0, 10, 20, 30, 40],
+        "engine_speed_rpm": [800, 1200, 1600, 2000, 2400],
+    })
+    ds = make_dataset(df, "roles")  # rely on auto-detection
+    roles = datasets.get_roles(ds.id)
+    assert roles["vehicle_speed_kph"] == "speed"
+    assert roles["engine_speed_rpm"] == "numeric"  # not mistaken for speed
+    assert roles["timestamp_s"] == "time"

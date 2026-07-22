@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Launch the VDAS-Insight Streamlit app.
+# Launch the VDAS-Insight desktop application.
 set -euo pipefail
 cd "$(dirname "$0")"
-exec streamlit run app/Home.py "$@"
+exec python -m desktop.main "$@"

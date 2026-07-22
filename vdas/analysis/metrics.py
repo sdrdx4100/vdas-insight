@@ -75,6 +75,7 @@ def derived_from_pool(pool: dict) -> dict:
     dist = pool.get("distance_km", np.nan)
     sc = pool.get("shift_count", 0.0)
     out = {
+        "duration_h": hours,
         "shifts_per_hour": (sc / hours) if hours else np.nan,
         "shifts_per_km": (sc / dist) if dist and not np.isnan(dist) else np.nan,
         "upshift_ratio": (pool.get("upshifts", 0.0) / sc) if sc else np.nan,

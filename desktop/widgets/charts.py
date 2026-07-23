@@ -91,6 +91,56 @@ class Histogram(pg.GraphicsLayoutWidget):
         self.plot.setLabel("bottom", xlabel or self._xlabel, color=theme.INK_DIM)
 
 
+class HeatMap2D(pg.GraphicsLayoutWidget):
+    """Continuous X-Y operating map coloured by a Z aggregate, with a colorbar."""
+
+    def __init__(self):
+        super().__init__()
+        self.plot = self.addPlot()
+        style_axes(self.plot)
+        self.img = pg.ImageItem()
+        self.plot.addItem(self.img)
+        self._seq = pg.ColorMap(np.linspace(0, 1, len(_SEQ)),
+                                [pg.mkColor(c).getRgb() for c in _SEQ])
+        # diverging blue↔neutral↔red for signed quantities (mean accel, etc.)
+        self._div = pg.ColorMap([0.0, 0.5, 1.0],
+                                [pg.mkColor("#184f95").getRgb(),
+                                 pg.mkColor("#f0efec").getRgb(),
+                                 pg.mkColor("#d03b3b").getRgb()])
+        self.img.setColorMap(self._seq)
+        self.bar = pg.ColorBarItem(colorMap=self._seq, label="")
+        self.bar.setImageItem(self.img, insert_in=self.plot)
+
+    def set_map(self, result, xlabel: str, ylabel: str):
+        z = result.z
+        xe, ye = result.x_edges, result.y_edges
+        self.img.setImage(z, autoLevels=False)
+        self.img.setRect(QtCore.QRectF(
+            float(xe[0]), float(ye[0]),
+            float(xe[-1] - xe[0]), float(ye[-1] - ye[0])))
+        finite = z[np.isfinite(z)]
+        lo = float(finite.min()) if finite.size else 0.0
+        hi = float(finite.max()) if finite.size else 1.0
+        if hi <= lo:
+            hi = lo + 1.0
+        # Signed data → symmetric diverging scale centred on 0.
+        if finite.size and lo < 0 < hi:
+            a = max(abs(lo), abs(hi))
+            lo, hi = -a, a
+            cmap = self._div
+        else:
+            cmap = self._seq
+        self.img.setColorMap(cmap)
+        try:
+            self.bar.setColorMap(cmap)
+        except Exception:  # noqa: BLE001 — older pyqtgraph without setColorMap
+            pass
+        self.bar.setLevels((lo, hi))
+        self.bar.setLabel("right", result.zlabel)
+        self.plot.setLabel("bottom", xlabel, color=theme.INK_DIM)
+        self.plot.setLabel("left", ylabel, color=theme.INK_DIM)
+
+
 class Heatmap(pg.GraphicsLayoutWidget):
     """Matrix heatmap with categorical tick labels and a colorbar."""
 

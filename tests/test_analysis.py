@@ -231,6 +231,26 @@ def test_assign_exclusive_in_category(make_dataset):
     assert got == {b, keep}
 
 
+def test_operating_map_density_and_mean(make_dataset):
+    from vdas.analysis import maps, prepare
+
+    rng = np.random.default_rng(0)
+    n = 500
+    x = rng.uniform(0, 100, n)
+    y = rng.uniform(0, 100, n)
+    z = x + y                      # mean per cell ≈ cell centre x+y
+    df = pd.DataFrame({"t": np.arange(n, dtype=float), "x": x, "y": y, "z": z})
+    ds = make_dataset(df, "map", {"t": "time", "x": "numeric",
+                                  "y": "numeric", "z": "numeric"})
+    p = prepare(ds)
+    r = maps.compute_map(p, "x", "y", maps.MODE_DENSITY, bins=10)
+    assert r.z.shape == (10, 10)
+    assert np.nansum(r.z) == pytest.approx(100.0)      # density sums to 100 %
+    rm = maps.compute_map(p, "x", "y", maps.MODE_MEAN, "z", bins=10)
+    # a low-x/low-y cell has a smaller mean(z) than a high-x/high-y cell
+    assert np.nanmin(rm.z) < np.nanmax(rm.z)
+
+
 def test_speed_vs_engine_role_detection(make_dataset):
     from vdas import datasets
 

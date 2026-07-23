@@ -13,6 +13,7 @@ from .state import AppState
 from .views.cohort_view import CohortView
 from .views.flag_view import FlagView
 from .views.gear_view import GearView
+from .views.map_view import MapView
 from .views.measurement_view import MeasurementView
 from .views.stats_view import StatsView
 
@@ -81,11 +82,13 @@ class MainWindow(QtWidgets.QMainWindow):
         self.gears = GearView(self.state)
         self.flags = FlagView(self.state)
         self.stats = StatsView(self.state)
+        self.map = MapView(self.state)
         self.cohort = CohortView(self.state)
         self.tabs.addTab(self.measurement, "📉 計測 (時系列)")
         self.tabs.addTab(self.gears, "⚙️ ギア段")
         self.tabs.addTab(self.flags, "🚩 フラグ")
         self.tabs.addTab(self.stats, "📊 統計")
+        self.tabs.addTab(self.map, "🗺 マップ (2D)")
         self.tabs.addTab(self.cohort, "🧩 コホート比較")
         self.setCentralWidget(self.tabs)
 
@@ -142,7 +145,7 @@ class MainWindow(QtWidgets.QMainWindow):
         else:
             self.lbl_dataset.setText("データセット未選択")
         # Rebuild the currently visible view; others rebuild lazily on show.
-        for v in (self.measurement, self.gears, self.flags, self.stats):
+        for v in (self.measurement, self.gears, self.flags, self.stats, self.map):
             v.rebuild()
 
     def _set_cursor_text(self, text: str):

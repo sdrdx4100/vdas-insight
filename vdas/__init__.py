@@ -5,4 +5,4 @@ telemetry (J1939 and similar), tagging datasets into cohorts, and comparing
 those cohorts on rate-normalized metrics.
 """
 
-__version__ = "0.1.0"
+__version__ = "1.0.0"

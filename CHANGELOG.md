@@ -3,7 +3,7 @@
 All notable changes to VDAS-Insight are documented here.
 This project adheres to [Semantic Versioning](https://semver.org/).
 
-## [0.1.0] — 2026-07-22
+## [1.0.0] — 2026-07-22
 
 初回リリース。大規模車両計測データ（J1939 等）の前処理済み parquet / csv を対象とした、
 研究・業務向けの可視化・統計・コホート比較デスクトップアプリ。
@@ -33,4 +33,4 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 - **サンプルデータ生成**（`scripts/gen_sample.py`）と、解析エンジン + デスクトップ起動スモークの
   テスト一式。
 
-[0.1.0]: https://github.com/sdrdx4100/vdas-insight/releases/tag/v0.1.0
+[1.0.0]: https://github.com/sdrdx4100/vdas-insight/releases/tag/v1.0.0

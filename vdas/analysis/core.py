@@ -135,12 +135,16 @@ def prepare(dataset: Dataset, columns: list[str] | None = None) -> PreparedData:
     flag_cols = [c for c in flag_cols if c in df.columns]
     numeric_cols = [c for c in numeric_cols if c in df.columns]
 
-    # Compute & append derived signals (acceleration, jerk, ...) as real
-    # numeric columns so they flow into plots / stats / cohort metrics.
+    # Compute & append derived signals (acceleration, jerk, threshold events…)
+    # as real columns. Numeric outputs join numeric_cols; 0/1 event outputs join
+    # flag_cols so they flow into the flag analysis and flag cohort metrics.
     from .. import derived
-    for name, values in derived.compute_all(dataset.id, df, t).items():
+    for name, values, out_role in derived.compute_all(dataset.id, df, t):
         df[name] = values
-        if name not in numeric_cols:
+        if out_role == "flag":
+            if name not in flag_cols:
+                flag_cols.append(name)
+        elif name not in numeric_cols:
             numeric_cols.append(name)
 
     result = PreparedData(

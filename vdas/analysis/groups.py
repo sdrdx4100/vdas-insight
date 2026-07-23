@@ -63,6 +63,16 @@ def flag_metric_defs(flag_col: str) -> list[MetricDef]:
     ]
 
 
+def numeric_metric_defs(col: str) -> list[MetricDef]:
+    """Poolable numeric-signal aggregates (mean is length-weighted across N)."""
+    return [
+        MetricDef(f"num::{col}::mean", f"{col} 平均", "", "signal"),
+        MetricDef(f"num::{col}::std", f"{col} 標準偏差", "", "signal"),
+        MetricDef(f"num::{col}::max", f"{col} 最大", "", "signal"),
+        MetricDef(f"num::{col}::min", f"{col} 最小", "", "signal"),
+    ]
+
+
 # --------------------------------------------------------------------------- #
 #  Cohort computation
 # --------------------------------------------------------------------------- #
@@ -102,7 +112,12 @@ def build_cohort_from(label: str, dataset_ids: list[int],
         for k, v in q.items():
             if v is None or (isinstance(v, float) and np.isnan(v)):
                 continue
-            pool[k] = pool.get(k, 0.0) + v
+            if k.endswith("::max"):
+                pool[k] = max(pool[k], v) if k in pool else v
+            elif k.endswith("::min"):
+                pool[k] = min(pool[k], v) if k in pool else v
+            else:
+                pool[k] = pool.get(k, 0.0) + v
         m = metrics_from_prepared(pd_data)
         m["dataset_id"] = ds.id
         m["dataset_name"] = ds.name

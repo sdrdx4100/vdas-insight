@@ -8,8 +8,10 @@ from vdas import derived
 from vdas.datasets import Dataset
 
 # Kinds whose result is a derivative / smoothed → expose a smoothing window.
+# Threshold kinds also allow a smoothing window to debounce the event.
 _WINDOW_KINDS = {"accel_from_speed", "jerk_from_speed", "derivative",
-                 "second_derivative", "rolling_mean"}
+                 "second_derivative", "rolling_mean",
+                 "thr_gt", "thr_lt", "thr_abs_gt"}
 
 
 class DerivedDialog(QtWidgets.QDialog):
@@ -38,6 +40,12 @@ class DerivedDialog(QtWidgets.QDialog):
 
         self.name_edit = QtWidgets.QLineEdit()
         form.addRow("信号名:", self.name_edit)
+
+        self.thr_spin = QtWidgets.QDoubleSpinBox()
+        self.thr_spin.setRange(-1e9, 1e9)
+        self.thr_spin.setDecimals(3)
+        self.thr_row = QtWidgets.QLabel("閾値:")
+        form.addRow(self.thr_row, self.thr_spin)
 
         self.window_spin = QtWidgets.QDoubleSpinBox()
         self.window_spin.setRange(0.0, 30.0)
@@ -79,8 +87,14 @@ class DerivedDialog(QtWidgets.QDialog):
         if show_win:
             # reset to the kind's default only if user hasn't touched it
             self.window_spin.setValue(kind.default_window_s)
+        self.thr_row.setVisible(kind.needs_threshold)
+        self.thr_spin.setVisible(kind.needs_threshold)
         out_unit = kind.unit_fn("km/h" if src == self._speed else "")
-        note = f"出力単位の目安: {out_unit}。" if out_unit else ""
+        if kind.needs_threshold:
+            note = ("0/1 のイベント信号を作成します（フラグ分析・コホートのフラグ指標に反映）。"
+                    " 閾値を超える連続区間を 1 とします。")
+        else:
+            note = f"出力単位の目安: {out_unit}。" if out_unit else ""
         if kind.needs_speed and src != self._speed:
             note += " ※このプリセットは車速(km/h)を前提とします。"
         self.hint.setText(note)
@@ -96,9 +110,12 @@ class DerivedDialog(QtWidgets.QDialog):
             QtWidgets.QMessageBox.warning(self, "重複", "その信号名は既に使われています。")
             return
         kind = self.kind_combo.currentData()
+        kdef = derived.KINDS[kind]
         params = {}
         if kind in _WINDOW_KINDS:
             params["window_s"] = float(self.window_spin.value())
+        if kdef.needs_threshold:
+            params["threshold"] = float(self.thr_spin.value())
         derived.add(self.dataset.id, kind, self.src_combo.currentText(),
                     name=name, params=params)
         self.created_name = name

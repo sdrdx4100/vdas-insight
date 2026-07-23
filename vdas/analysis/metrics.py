@@ -45,6 +45,19 @@ def base_quantities(pd_data: PreparedData) -> dict:
         s = flags.summary(pd_data, col)
         q[f"flag::{col}::activations"] = float(s["activations"])
         q[f"flag::{col}::total_on_s"] = float(s["total_on_s"])
+    # Per-numeric extensive stats (sum/sumsq/n/max/min). These pool exactly:
+    # sum,sumsq,n add; max/min reduce by max/min — so the cohort mean/std/max/min
+    # are the true length-weighted values, not an average of per-file means.
+    for col in pd_data.numeric_cols:
+        v = pd.to_numeric(pd_data.df[col], errors="coerce").to_numpy(dtype=float)
+        v = v[np.isfinite(v)]
+        if len(v) == 0:
+            continue
+        q[f"num::{col}::sum"] = float(v.sum())
+        q[f"num::{col}::sumsq"] = float(np.dot(v, v))
+        q[f"num::{col}::n"] = float(len(v))
+        q[f"num::{col}::max"] = float(v.max())
+        q[f"num::{col}::min"] = float(v.min())
     return q
 
 
@@ -65,6 +78,15 @@ def metrics_from_prepared(pd_data) -> dict:
         m[f"flag::{col}::activations_per_hour"] = s["activations_per_hour"]
         m[f"flag::{col}::duty_cycle"] = s["duty_cycle"]
         m[f"flag::{col}::mean_on_s"] = s["mean_on_s"]
+    # Per-dataset numeric mean/std (for the cohort spread box).
+    for col in pd_data.numeric_cols:
+        n = q.get(f"num::{col}::n", 0.0)
+        if not n:
+            continue
+        mean = q[f"num::{col}::sum"] / n
+        var = max(q.get(f"num::{col}::sumsq", 0.0) / n - mean * mean, 0.0)
+        m[f"num::{col}::mean"] = mean
+        m[f"num::{col}::std"] = var ** 0.5
     return m
 
 
@@ -94,6 +116,17 @@ def derived_from_pool(pool: dict) -> dict:
             out[f"flag::{col}::activations_per_hour"] = (act / hours) if hours else np.nan
             out[f"flag::{col}::duty_cycle"] = (
                 (on / pool["duration_s"]) if pool.get("duration_s") else np.nan)
+    # Numeric mean/std from pooled moments (max/min are already pooled).
+    for key in list(pool.keys()):
+        if key.startswith("num::") and key.endswith("::sum"):
+            col = key[len("num::"):-len("::sum")]
+            n = pool.get(f"num::{col}::n", 0.0)
+            if not n:
+                continue
+            mean = pool[key] / n
+            var = max(pool.get(f"num::{col}::sumsq", 0.0) / n - mean * mean, 0.0)
+            out[f"num::{col}::mean"] = mean
+            out[f"num::{col}::std"] = var ** 0.5
     return out
 
 

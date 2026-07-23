@@ -16,9 +16,11 @@ from __future__ import annotations
 from PySide6 import QtCore, QtWidgets
 
 from vdas import datasets as ds_mod
+from vdas import derived as derived_mod
 from vdas import tags as tags_mod
 from vdas.analysis import groups
-from vdas.analysis.groups import CORE_METRICS, CohortDef, flag_metric_defs
+from vdas.analysis.groups import (CORE_METRICS, CohortDef, flag_metric_defs,
+                                  numeric_metric_defs)
 from .. import theme
 from ..state import AppState
 from ..widgets.charts import BarChart
@@ -190,13 +192,18 @@ class CohortView(QtWidgets.QWidget):
             self._df = None
             return
 
-        flag_cols = set()
+        flag_cols, num_cols = set(), set()
         for d in defs:
             for did in d.dataset_ids:
                 flag_cols.update(ds_mod.flag_columns(did))
+                flag_cols.update(derived_mod.flag_names(did))     # event flags
+                num_cols.update(ds_mod.numeric_columns(did))
+                num_cols.update(derived_mod.numeric_names(did))   # accel/jerk…
         metric_defs = list(CORE_METRICS)
         for fc in sorted(flag_cols):
             metric_defs += flag_metric_defs(fc)
+        for nc in sorted(num_cols):
+            metric_defs += numeric_metric_defs(nc)
         self._defs = {m.key: m for m in metric_defs}
 
         cur_key = self.metric_combo.currentData() or "shifts_per_hour"

@@ -186,6 +186,51 @@ def test_derived_persist_and_delete(make_dataset):
     assert "spd_ddt" not in derived.names_for_dataset(ds.id)
 
 
+def test_threshold_event_becomes_flag(make_dataset):
+    from vdas import derived
+    from vdas.analysis import flags, prepare
+
+    # x crosses 5 twice (two ON blocks) -> two events
+    x = [0, 0, 9, 9, 0, 0, 9, 9, 0, 0]
+    df = pd.DataFrame({"t": np.arange(len(x), dtype=float), "x": x})
+    ds = make_dataset(df, "evt", {"t": "time", "x": "numeric"})
+    derived.add(ds.id, "thr_gt", "x", name="ev", params={"threshold": 5.0})
+    p = prepare(ds)
+    assert "ev" in p.flag_cols and "ev" not in p.numeric_cols
+    assert flags.intervals(p, "ev")["activations"] == 2
+
+
+def test_pooled_numeric_mean_is_length_weighted(make_dataset):
+    from vdas import tags
+    from vdas.analysis import groups
+
+    # dataset A: mean 0 over 2 samples; B: mean 30 over 4 samples.
+    a = pd.DataFrame({"t": np.arange(2.0), "v": [0.0, 0.0]})
+    b = pd.DataFrame({"t": np.arange(4.0), "v": [30.0, 30.0, 30.0, 30.0]})
+    da = make_dataset(a, "na", {"t": "time", "v": "numeric"})
+    dbb = make_dataset(b, "nb", {"t": "time", "v": "numeric"})
+    tid = tags.create("g").id
+    tags.assign(da.id, tid); tags.assign(dbb.id, tid)
+    df, _ = groups.compare([tid], ["num::v::mean", "num::v::max"])
+    # length-weighted: (0*2 + 30*4)/6 = 20 (not the simple mean of means, 15)
+    assert df["num::v::mean"].iloc[0] == pytest.approx(20.0)
+    assert df["num::v::max"].iloc[0] == pytest.approx(30.0)
+
+
+def test_assign_exclusive_in_category(make_dataset):
+    from vdas import tags
+
+    df = pd.DataFrame({"t": np.arange(3.0), "v": [1.0, 2, 3]})
+    ds = make_dataset(df, "excl", {"t": "time", "v": "numeric"})
+    a = tags.create("ExMkA", category="exmaker").id
+    b = tags.create("ExMkB", category="exmaker").id
+    keep = tags.create("ExHwy", category="excond").id
+    tags.assign(ds.id, a); tags.assign(ds.id, keep)
+    tags.assign_exclusive(ds.id, b)          # drops A (same category), keeps hwy
+    got = set(tags.tag_ids_for_dataset(ds.id))
+    assert got == {b, keep}
+
+
 def test_speed_vs_engine_role_detection(make_dataset):
     from vdas import datasets
 

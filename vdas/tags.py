@@ -159,9 +159,27 @@ def dataset_ids_matching_all(tag_ids: list[int]) -> list[int]:
 # --------------------------------------------------------------------------- #
 #  Bulk operations (used by the data-management screen)
 # --------------------------------------------------------------------------- #
-def assign_many(dataset_ids: list[int], tag_id: int) -> int:
+def assign_exclusive(dataset_id: int, tag_id: int) -> None:
+    """Assign a tag, first removing any other tag of the same category.
+
+    Enforces "one tag per category" (e.g. a dataset has exactly one メーカー).
+    Tags without a category are assigned normally (no exclusion).
+    """
+    tag = get_tag(tag_id)
+    if tag and tag.category:
+        same = {t.id for t in tags_in_category(tag.category)} - {tag_id}
+        for tid in tag_ids_for_dataset(dataset_id):
+            if tid in same:
+                unassign(dataset_id, tid)
+    assign(dataset_id, tag_id)
+
+
+def assign_many(dataset_ids: list[int], tag_id: int, exclusive: bool = False) -> int:
     for did in dataset_ids:
-        assign(did, tag_id)
+        if exclusive:
+            assign_exclusive(did, tag_id)
+        else:
+            assign(did, tag_id)
     return len(dataset_ids)
 
 

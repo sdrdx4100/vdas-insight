@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from PySide6 import QtCore, QtWidgets
 
+from vdas import presets as presets_mod
 from vdas.analysis.conditions import OPS, Predicate
 
 
@@ -23,6 +24,13 @@ class ConditionBar(QtWidgets.QWidget):
         self.btn_add = QtWidgets.QPushButton("＋条件")
         self.btn_add.setFixedWidth(64)
         head.addWidget(self.btn_add)
+        head.addSpacing(12)
+        head.addWidget(QtWidgets.QLabel("プリセット:"))
+        self.preset_combo = QtWidgets.QComboBox(); self.preset_combo.setMinimumWidth(150)
+        head.addWidget(self.preset_combo)
+        self.btn_save = QtWidgets.QPushButton("保存"); self.btn_save.setFixedWidth(52)
+        self.btn_del = QtWidgets.QPushButton("削除"); self.btn_del.setFixedWidth(52)
+        head.addWidget(self.btn_save); head.addWidget(self.btn_del)
         head.addStretch(1)
         lay.addLayout(head)
 
@@ -33,6 +41,10 @@ class ConditionBar(QtWidgets.QWidget):
 
         self.enable.toggled.connect(self._on_enable)
         self.btn_add.clicked.connect(lambda: (self._add_row(), self._emit()))
+        self.preset_combo.activated.connect(self._load_preset)
+        self.btn_save.clicked.connect(self._save_preset)
+        self.btn_del.clicked.connect(self._delete_preset)
+        self._reload_presets()
         self._on_enable(False)
 
     # ---------------------------------------------------------------- signals
@@ -92,9 +104,68 @@ class ConditionBar(QtWidgets.QWidget):
     def _emit(self):
         self.changed.emit()
 
+    # ---------------------------------------------------------------- presets
+    def set_predicates(self, preds: list[Predicate]):
+        for row in list(self._rows):
+            row["w"].setParent(None)
+        self._rows.clear()
+        self.enable.blockSignals(True)
+        self.enable.setChecked(bool(preds))
+        self.enable.blockSignals(False)
+        self.btn_add.setEnabled(bool(preds))
+        for p in preds:
+            row = self._add_row(p.signal)
+            i = row["op"].findData(p.op)
+            if i >= 0:
+                row["op"].setCurrentIndex(i)
+            row["val"].setValue(p.value)
+            row["val2"].setValue(p.value2)
+            row["val2"].setVisible(p.op == "between")
+        self._emit()
+
+    def _reload_presets(self):
+        self.preset_combo.blockSignals(True)
+        self.preset_combo.clear()
+        self.preset_combo.addItem("—", None)
+        for pr in presets_mod.list_presets():
+            self.preset_combo.addItem(pr.name, pr.id)
+        self.preset_combo.blockSignals(False)
+
+    def _load_preset(self, _idx):
+        pid = self.preset_combo.currentData()
+        if pid is None:
+            return
+        for pr in presets_mod.list_presets():
+            if pr.id == pid:
+                self.set_predicates(pr.predicates)
+                self.set_signals(self._signals)  # re-sync combos to current signals
+                break
+
+    def _save_preset(self):
+        preds = self._collect(force=True)
+        if not preds:
+            QtWidgets.QMessageBox.information(self, "プリセット保存", "条件がありません。")
+            return
+        default = self.preset_combo.currentText() if self.preset_combo.currentData() else ""
+        name, ok = QtWidgets.QInputDialog.getText(
+            self, "プリセット保存", "名前:", text=default)
+        if ok and name.strip():
+            presets_mod.save(name.strip(), preds)
+            self._reload_presets()
+            i = self.preset_combo.findText(name.strip())
+            if i >= 0:
+                self.preset_combo.setCurrentIndex(i)
+
+    def _delete_preset(self):
+        pid = self.preset_combo.currentData()
+        if pid is None:
+            return
+        presets_mod.delete(pid)
+        self._reload_presets()
+
     # ---------------------------------------------------------------- output
-    def predicates(self) -> list[Predicate]:
-        if not self.enable.isChecked():
+    def _collect(self, force: bool = False) -> list[Predicate]:
+        if not force and not self.enable.isChecked():
             return []
         out = []
         for row in self._rows:
@@ -104,3 +175,6 @@ class ConditionBar(QtWidgets.QWidget):
             out.append(Predicate(sig, row["op"].currentData(),
                                  float(row["val"].value()), float(row["val2"].value())))
         return out
+
+    def predicates(self) -> list[Predicate]:
+        return self._collect(force=False)

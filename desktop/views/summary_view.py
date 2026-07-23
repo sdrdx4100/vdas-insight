@@ -11,6 +11,7 @@ from vdas.analysis.groups import (CORE_METRICS, CohortDef, flag_metric_defs,
                                   numeric_metric_defs)
 from .. import theme
 from ..state import AppState
+from ..widgets.condition_bar import ConditionBar
 from ..widgets.summary_grid import MiniBarGrid
 
 
@@ -44,6 +45,9 @@ class SummaryView(QtWidgets.QWidget):
         ctl.addStretch(1)
         lay.addLayout(ctl)
 
+        self.cond = ConditionBar()
+        lay.addWidget(self.cond)
+
         self.msg = QtWidgets.QLabel(); self.msg.setObjectName("dim")
         lay.addWidget(self.msg)
 
@@ -56,6 +60,7 @@ class SummaryView(QtWidgets.QWidget):
         self.cols_spin.valueChanged.connect(self._draw)
         self.tag_list.itemChanged.connect(self.rebuild)
         self.metric_list.itemChanged.connect(self._draw)
+        self.cond.changed.connect(self.rebuild)
         self.state.tagsChanged.connect(self.reload_tags)
         self.state.datasetsChanged.connect(self.reload_tags)
         self._first = True
@@ -108,6 +113,9 @@ class SummaryView(QtWidgets.QWidget):
             metric_defs += numeric_metric_defs(nc)
         self._defs = {m.key: m for m in metric_defs}
 
+        self.cond.set_signals(sorted(num_cols))
+        predicates = self.cond.predicates()
+
         prev = set(self._checked(self.metric_list))
         if not prev:
             prev = _default_metrics(metric_defs)
@@ -121,8 +129,11 @@ class SummaryView(QtWidgets.QWidget):
             self.metric_list.addItem(it)
         self.metric_list.blockSignals(False)
 
-        self._df, self._cohorts = groups.compare_defs(defs, [m.key for m in metric_defs])
-        self.msg.setText(f"{len(defs)} コホート × 指標を一覧（各パネル: コホート別の値）")
+        self._df, self._cohorts = groups.compare_defs(
+            defs, [m.key for m in metric_defs], condition=predicates)
+        from vdas.analysis.conditions import label as cond_label
+        cnote = f"　集計条件: {cond_label(predicates)}" if predicates else ""
+        self.msg.setText(f"{len(defs)} コホート × 指標を一覧（各パネル: コホート別の値）" + cnote)
         self._draw()
 
     def _draw(self):

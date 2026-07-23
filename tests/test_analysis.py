@@ -279,6 +279,27 @@ def test_conditional_aggregation_gates_events_and_time(make_dataset):
     assert gated["duration_h"].iloc[0] == pytest.approx(3.0 / 3600.0)
 
 
+def test_condition_presets_roundtrip():
+    from vdas import presets
+    from vdas.analysis.conditions import Predicate
+
+    presets.save("preset_speed", [Predicate("vehicle_speed_kph", "<=", 70.0)])
+    presets.save("preset_multi", [Predicate("a", ">=", 1.0),
+                                  Predicate("b", "between", 2.0, 5.0)])
+    by_name = {p.name: p for p in presets.list_presets()}
+    assert by_name["preset_speed"].predicates[0].value == 70.0
+    assert by_name["preset_multi"].predicates[1].op == "between"
+    assert by_name["preset_multi"].predicates[1].value2 == 5.0
+    # save-by-name updates in place (no duplicate)
+    presets.save("preset_speed", [Predicate("vehicle_speed_kph", "<=", 55.0)])
+    again = {p.name: p for p in presets.list_presets()}
+    assert again["preset_speed"].predicates[0].value == 55.0
+    n_speed = sum(1 for p in presets.list_presets() if p.name == "preset_speed")
+    assert n_speed == 1
+    presets.delete(again["preset_speed"].id)
+    assert "preset_speed" not in {p.name for p in presets.list_presets()}
+
+
 def test_condition_missing_signal_excludes_dataset(make_dataset):
     from vdas.analysis import conditions, prepare
 

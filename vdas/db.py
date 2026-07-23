@@ -25,6 +25,7 @@ SCHEMA = """
 CREATE SEQUENCE IF NOT EXISTS seq_dataset_id START 1;
 CREATE SEQUENCE IF NOT EXISTS seq_tag_id START 1;
 CREATE SEQUENCE IF NOT EXISTS seq_derived_id START 1;
+CREATE SEQUENCE IF NOT EXISTS seq_preset_id START 1;
 
 CREATE TABLE IF NOT EXISTS datasets (
     id           BIGINT PRIMARY KEY DEFAULT nextval('seq_dataset_id'),
@@ -67,6 +68,13 @@ CREATE TABLE IF NOT EXISTS derived_signals (
     source       VARCHAR,                 -- source column (file col or another derived)
     params       JSON,                    -- kind-specific (window_s, ...)
     ordinal      BIGINT DEFAULT 0         -- evaluation order
+);
+
+CREATE TABLE IF NOT EXISTS condition_presets (
+    id           BIGINT PRIMARY KEY DEFAULT nextval('seq_preset_id'),
+    name         VARCHAR NOT NULL UNIQUE, -- e.g. "車速≤70"
+    spec         JSON,                    -- serialized list of predicates
+    created_at   TIMESTAMP DEFAULT now()
 );
 """
 

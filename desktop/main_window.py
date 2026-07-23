@@ -1,4 +1,4 @@
-"""Main application window: docked panels + tabbed analysis workspace."""
+"""Main application window: docked panels + grouped analysis workspace."""
 from __future__ import annotations
 
 from PySide6 import QtCore, QtGui, QtWidgets
@@ -36,16 +36,13 @@ class MainWindow(QtWidgets.QMainWindow):
         self._build_toolbar()
         self._build_statusbar()
 
-        # Refresh views when the active dataset changes.
         self.state.currentDatasetChanged.connect(self._on_dataset_changed)
         self.state.rolesChanged.connect(lambda _id: self._on_dataset_changed(self.state.current_id))
-        # Kick initial population.
         self.state.datasetsChanged.emit()
         if self.dataset_panel.tree.topLevelItemCount():
             self.dataset_panel.tree.setCurrentItem(
                 self.dataset_panel.tree.topLevelItem(0))
 
-    # ------------------------------------------------------------------ UI
     def _dock(self, title, widget, area, obj):
         d = QtWidgets.QDockWidget(title, self)
         d.setObjectName(obj)
@@ -77,8 +74,16 @@ class MainWindow(QtWidgets.QMainWindow):
                          QtCore.Qt.Horizontal)
 
     def _build_central(self):
-        self.tabs = QtWidgets.QTabWidget()
-        self.tabs.setDocumentMode(True)
+        """Group the growing view list into single-data and cohort workflows."""
+        self.workspace = QtWidgets.QTabWidget()
+        self.workspace.setDocumentMode(True)
+        self.workspace.setTabPosition(QtWidgets.QTabWidget.North)
+
+        self.single_tabs = QtWidgets.QTabWidget()
+        self.single_tabs.setDocumentMode(True)
+        self.cohort_tabs = QtWidgets.QTabWidget()
+        self.cohort_tabs.setDocumentMode(True)
+
         self.measurement = MeasurementView(self.state)
         self.measurement.set_cursor_callback(self._set_cursor_text)
         self.gears = GearView(self.state)
@@ -88,15 +93,38 @@ class MainWindow(QtWidgets.QMainWindow):
         self.cohort = CohortView(self.state)
         self.cohort_map = CohortMapView(self.state)
         self.summary = SummaryView(self.state)
-        self.tabs.addTab(self.measurement, "📉 計測 (時系列)")
-        self.tabs.addTab(self.gears, "⚙️ ギア段")
-        self.tabs.addTab(self.flags, "🚩 フラグ")
-        self.tabs.addTab(self.stats, "📊 統計")
-        self.tabs.addTab(self.map, "🗺 マップ (2D)")
-        self.tabs.addTab(self.cohort, "🧩 コホート比較")
-        self.tabs.addTab(self.cohort_map, "🗺 コホートマップ")
-        self.tabs.addTab(self.summary, "📋 サマリ")
-        self.setCentralWidget(self.tabs)
+
+        self.single_tabs.addTab(self.measurement, "📉 時系列")
+        self.single_tabs.addTab(self.stats, "📊 統計")
+        self.single_tabs.addTab(self.gears, "⚙️ ギア段")
+        self.single_tabs.addTab(self.flags, "🚩 フラグ")
+        self.single_tabs.addTab(self.map, "🗺 2Dマップ")
+
+        self.cohort_tabs.addTab(self.cohort, "🧩 比較")
+        self.cohort_tabs.addTab(self.cohort_map, "🗺 マップ")
+        self.cohort_tabs.addTab(self.summary, "📋 サマリ")
+
+        self.workspace.addTab(self.single_tabs, "単体分析")
+        self.workspace.addTab(self.cohort_tabs, "コホート分析")
+        self.setCentralWidget(self.workspace)
+
+        # Compatibility alias for integrations that only need the active workspace.
+        self.tabs = self.workspace
+
+    def _show_cohort_comparison(self):
+        self.workspace.setCurrentWidget(self.cohort_tabs)
+        self.cohort_tabs.setCurrentWidget(self.cohort)
+
+    def _reset_layout(self):
+        for dock in (self.dock_data, self.dock_sig, self.dock_props, self.dock_tags):
+            dock.setVisible(True)
+            dock.setFloating(False)
+        self.addDockWidget(QtCore.Qt.LeftDockWidgetArea, self.dock_data)
+        self.splitDockWidget(self.dock_data, self.dock_sig, QtCore.Qt.Vertical)
+        self.addDockWidget(QtCore.Qt.RightDockWidgetArea, self.dock_props)
+        self.splitDockWidget(self.dock_props, self.dock_tags, QtCore.Qt.Vertical)
+        self.resizeDocks([self.dock_data, self.dock_props], [300, 320],
+                         QtCore.Qt.Horizontal)
 
     def _build_menu(self):
         mb = self.menuBar()
@@ -112,6 +140,8 @@ class MainWindow(QtWidgets.QMainWindow):
         m_view = mb.addMenu("表示(&V)")
         for dock in (self.dock_data, self.dock_sig, self.dock_props, self.dock_tags):
             m_view.addAction(dock.toggleViewAction())
+        m_view.addSeparator()
+        m_view.addAction("レイアウトを初期状態に戻す", self._reset_layout)
 
         m_help = mb.addMenu("ヘルプ(&H)")
         m_help.addAction("VDAS-Insight について", self._about)
@@ -129,7 +159,7 @@ class MainWindow(QtWidgets.QMainWindow):
         a_manage.triggered.connect(self._open_manage)
         tb.addSeparator()
         a_cmp = tb.addAction("コホート比較へ")
-        a_cmp.triggered.connect(lambda: self.tabs.setCurrentWidget(self.cohort))
+        a_cmp.triggered.connect(self._show_cohort_comparison)
 
     def _open_manage(self):
         from .panels.manage_dialog import ManageDialog
@@ -143,15 +173,12 @@ class MainWindow(QtWidgets.QMainWindow):
         sb.addWidget(self.lbl_dataset)
         sb.addPermanentWidget(self.lbl_cursor)
 
-    # --------------------------------------------------------------- slots
     def _on_dataset_changed(self, _id):
         d = self.state.current_dataset()
         if d:
             self.lbl_dataset.setText(f"▶ {d.name}   ({d.row_count:,} 行 · {d.format})")
         else:
             self.lbl_dataset.setText("データセット未選択")
-        # Rebuild views defensively: a single problematic dataset must never
-        # take down the whole app (e.g. at startup for an auto-selected file).
         for v in (self.measurement, self.gears, self.flags, self.stats, self.map):
             try:
                 v.rebuild()

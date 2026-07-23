@@ -71,6 +71,26 @@ def _median_dt(t: np.ndarray) -> float:
     return float(np.median(d)) if len(d) else 0.0
 
 
+def sample_dt(t: np.ndarray) -> np.ndarray:
+    """Per-sample time interval (forward difference; last sample gets the median).
+
+    ``dt[i]`` is the time "owned" by sample i, used to integrate in-condition
+    duration / distance from a boolean mask.
+    """
+    n = len(t)
+    if n == 0:
+        return np.array([], dtype=float)
+    if n == 1:
+        return np.array([0.0])
+    d = np.diff(t)
+    med = _median_dt(t)
+    dt = np.empty(n, dtype=float)
+    dt[:-1] = d
+    dt[-1] = med
+    dt[~np.isfinite(dt) | (dt < 0)] = med
+    return dt
+
+
 #: Self-invalidating cache of full prepared frames, keyed by dataset id. The
 #: signature folds in file mtime + roles + derived-signal definitions, so any
 #: change produces a new key and a fresh build without explicit invalidation.

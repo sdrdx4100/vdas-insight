@@ -94,13 +94,20 @@ class Cohort:
         return np.array([], dtype=float)
 
 
-def build_cohort_from(label: str, dataset_ids: list[int],
-                      color: str | None = None) -> Cohort:
-    """Pool metrics over an explicit set of datasets (the core builder)."""
+def build_cohort_from(label: str, dataset_ids: list[int], color: str | None = None,
+                      condition: list | None = None) -> Cohort:
+    """Pool metrics over an explicit set of datasets (the core builder).
+
+    ``condition`` is an optional list of ``conditions.Predicate`` applied per
+    dataset as a per-sample mask (gated / conditional aggregation).
+    """
     pool: dict = {}
     rows = []
     flag_cols: set[str] = set()
     used: list[int] = []
+    mask = None
+    if condition:
+        from .conditions import compute_mask
     for did in dataset_ids:
         ds = ds_mod.get_dataset(did)
         if ds is None or not ds.exists:
@@ -108,7 +115,8 @@ def build_cohort_from(label: str, dataset_ids: list[int],
         used.append(did)
         pd_data = prepare(ds)          # single read; reused for both below
         flag_cols.update(pd_data.flag_cols)
-        q = base_quantities(pd_data)
+        mask = compute_mask(pd_data, condition) if condition else None
+        q = base_quantities(pd_data, mask)
         for k, v in q.items():
             if v is None or (isinstance(v, float) and np.isnan(v)):
                 continue
@@ -118,7 +126,7 @@ def build_cohort_from(label: str, dataset_ids: list[int],
                 pool[k] = min(pool[k], v) if k in pool else v
             else:
                 pool[k] = pool.get(k, 0.0) + v
-        m = metrics_from_prepared(pd_data)
+        m = metrics_from_prepared(pd_data, mask)
         m["dataset_id"] = ds.id
         m["dataset_name"] = ds.name
         rows.append(m)
@@ -147,10 +155,15 @@ class CohortDef:
     color: str | None = None
 
 
-def compare_defs(defs: list[CohortDef],
-                 metric_keys: list[str]) -> tuple[pd.DataFrame, list[Cohort]]:
-    """Compare arbitrary cohort definitions (label + dataset set) on metrics."""
-    cohorts = [build_cohort_from(d.label, d.dataset_ids, d.color) for d in defs]
+def compare_defs(defs: list[CohortDef], metric_keys: list[str],
+                 condition: list | None = None) -> tuple[pd.DataFrame, list[Cohort]]:
+    """Compare arbitrary cohort definitions (label + dataset set) on metrics.
+
+    ``condition`` (list of conditions.Predicate) gates every cohort's
+    aggregation to in-condition samples (e.g. speed ≤ 70).
+    """
+    cohorts = [build_cohort_from(d.label, d.dataset_ids, d.color, condition)
+               for d in defs]
     records = []
     for c in cohorts:
         rec = {"tag": c.label,

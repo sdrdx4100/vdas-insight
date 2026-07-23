@@ -20,65 +20,108 @@ import pandas as pd
 
 from ..datasets import Dataset
 from . import flags, gears
-from .core import PreparedData, prepare
+from .core import PreparedData, prepare, sample_dt
 
 
-def base_quantities(pd_data: PreparedData) -> dict:
-    """Extensive quantities that pool by summation across a cohort."""
+def _onset_mask(on: np.ndarray) -> np.ndarray:
+    """Rising-edge (0→1) mask, counting an initial ON sample as an onset."""
+    n = len(on)
+    onset = np.zeros(n, dtype=bool)
+    if n:
+        onset[0] = on[0]
+        onset[1:] = on[1:] & ~on[:-1]
+    return onset
+
+
+def base_quantities(pd_data: PreparedData, mask: np.ndarray | None = None) -> dict:
+    """Extensive quantities that pool by summation across a cohort.
+
+    With ``mask`` (a per-sample boolean), only in-condition samples/events are
+    counted and time/distance integrate over the in-condition part.
+    """
     gs = gears.shift_events(pd_data)
+    if mask is not None and not gs.empty:
+        gs = gs[mask[gs["idx"].to_numpy()]]
     n = len(gs)
     up = int((gs["direction"] > 0).sum()) if n else 0
     down = int((gs["direction"] < 0).sum()) if n else 0
-    dist = pd_data.distance_km()
+
+    if mask is None:
+        duration_s = float(pd_data.duration_s)
+        dist = pd_data.distance_km()
+        distance_km = float(dist) if dist is not None else np.nan
+        n_rows = float(pd_data.n)
+    else:
+        dt = sample_dt(pd_data.t)
+        duration_s = float(np.sum(dt[mask]))
+        n_rows = float(int(mask.sum()))
+        if pd_data.speed_col and pd_data.speed_col in pd_data.df:
+            v = pd.to_numeric(pd_data.df[pd_data.speed_col],
+                              errors="coerce").to_numpy(dtype=float)
+            ok = mask & np.isfinite(v)
+            distance_km = float(np.sum(v[ok] * dt[ok]) / 3600.0)
+        else:
+            distance_km = np.nan
 
     q = {
         "n_datasets": 1,
-        "n_rows": float(pd_data.n),
-        "duration_s": float(pd_data.duration_s),
-        "distance_km": float(dist) if dist is not None else np.nan,
+        "n_rows": n_rows,
+        "duration_s": duration_s,
+        "distance_km": distance_km,
         "shift_count": float(n),
         "upshifts": float(up),
         "downshifts": float(down),
     }
+    dt = sample_dt(pd_data.t) if mask is not None else None
     # Per-flag extensive quantities, namespaced.
     for col in pd_data.flag_cols:
-        s = flags.summary(pd_data, col)
-        q[f"flag::{col}::activations"] = float(s["activations"])
-        q[f"flag::{col}::total_on_s"] = float(s["total_on_s"])
+        if mask is None:
+            s = flags.summary(pd_data, col)
+            q[f"flag::{col}::activations"] = float(s["activations"])
+            q[f"flag::{col}::total_on_s"] = float(s["total_on_s"])
+        else:
+            on = pd.to_numeric(pd_data.df[col], errors="coerce").to_numpy(dtype=float) > 0.5
+            onset = _onset_mask(on)
+            q[f"flag::{col}::activations"] = float(int((onset & mask).sum()))
+            q[f"flag::{col}::total_on_s"] = float(np.sum(dt[on & mask]))
     # Per-numeric extensive stats (sum/sumsq/n/max/min). These pool exactly:
     # sum,sumsq,n add; max/min reduce by max/min — so the cohort mean/std/max/min
     # are the true length-weighted values, not an average of per-file means.
     for col in pd_data.numeric_cols:
         v = pd.to_numeric(pd_data.df[col], errors="coerce").to_numpy(dtype=float)
-        v = v[np.isfinite(v)]
-        if len(v) == 0:
+        valid = np.isfinite(v)
+        if mask is not None:
+            valid = valid & mask
+        vv = v[valid]
+        if len(vv) == 0:
             continue
-        q[f"num::{col}::sum"] = float(v.sum())
-        q[f"num::{col}::sumsq"] = float(np.dot(v, v))
-        q[f"num::{col}::n"] = float(len(v))
-        q[f"num::{col}::max"] = float(v.max())
-        q[f"num::{col}::min"] = float(v.min())
+        q[f"num::{col}::sum"] = float(vv.sum())
+        q[f"num::{col}::sumsq"] = float(np.dot(vv, vv))
+        q[f"num::{col}::n"] = float(len(vv))
+        q[f"num::{col}::max"] = float(vv.max())
+        q[f"num::{col}::min"] = float(vv.min())
     return q
 
 
-def metrics_from_prepared(pd_data) -> dict:
-    """Full flat metric dict from an already-prepared frame (no re-read)."""
-    q = base_quantities(pd_data)
+def metrics_from_prepared(pd_data: PreparedData, mask: np.ndarray | None = None) -> dict:
+    """Full flat metric dict derived from (optionally masked) base quantities."""
+    q = base_quantities(pd_data, mask)
     m = dict(q)
-    hours = pd_data.duration_h
+    dur = q.get("duration_s", 0.0)
+    hours = dur / 3600.0
     dist = q.get("distance_km")
+    sc = q["shift_count"]
 
     m["duration_h"] = hours
     m["sample_rate_hz"] = (1.0 / pd_data.dt) if pd_data.dt else np.nan
-    m["shifts_per_hour"] = (q["shift_count"] / hours) if hours else np.nan
-    m["shifts_per_km"] = (q["shift_count"] / dist) if dist else np.nan
-    m["upshift_ratio"] = (q["upshifts"] / q["shift_count"]) if q["shift_count"] else np.nan
+    m["shifts_per_hour"] = (sc / hours) if hours else np.nan
+    m["shifts_per_km"] = (sc / dist) if dist and not np.isnan(dist) else np.nan
+    m["upshift_ratio"] = (q["upshifts"] / sc) if sc else np.nan
     for col in pd_data.flag_cols:
-        s = flags.summary(pd_data, col)
-        m[f"flag::{col}::activations_per_hour"] = s["activations_per_hour"]
-        m[f"flag::{col}::duty_cycle"] = s["duty_cycle"]
-        m[f"flag::{col}::mean_on_s"] = s["mean_on_s"]
-    # Per-dataset numeric mean/std (for the cohort spread box).
+        act = q.get(f"flag::{col}::activations", np.nan)
+        on = q.get(f"flag::{col}::total_on_s", np.nan)
+        m[f"flag::{col}::activations_per_hour"] = (act / hours) if hours else np.nan
+        m[f"flag::{col}::duty_cycle"] = (on / dur) if dur else np.nan
     for col in pd_data.numeric_cols:
         n = q.get(f"num::{col}::n", 0.0)
         if not n:

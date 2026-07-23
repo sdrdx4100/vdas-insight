@@ -251,6 +251,44 @@ def test_operating_map_density_and_mean(make_dataset):
     assert np.nanmin(rm.z) < np.nanmax(rm.z)
 
 
+def test_conditional_aggregation_gates_events_and_time(make_dataset):
+    from vdas import tags
+    from vdas.analysis import groups
+    from vdas.analysis.conditions import Predicate
+
+    # gear shifts at t=1 (speed 50, ≤70) and t=3 (speed 90, >70)
+    df = pd.DataFrame({
+        "t": [0.0, 1.0, 2.0, 3.0, 4.0],
+        "current_gear": [1, 2, 2, 3, 3],
+        "vehicle_speed_kph": [50, 50, 50, 90, 90],
+    })
+    ds = make_dataset(df, "cond", {"t": "time", "current_gear": "gear",
+                                   "vehicle_speed_kph": "speed"})
+    tid = tags.create("cg").id
+    tags.assign(ds.id, tid)
+
+    full, _ = groups.compare([tid], ["shift_count"])
+    assert full["shift_count"].iloc[0] == 2
+
+    cond = [Predicate("vehicle_speed_kph", "<=", 70.0)]
+    gated, _ = groups.compare_defs(
+        [groups.CohortDef("cg", tags.dataset_ids_for_tag(tid))],
+        ["shift_count", "duration_h"], condition=cond)
+    # only the t=1 shift is in-condition; in-condition time = 3 s (samples 0..2)
+    assert gated["shift_count"].iloc[0] == 1
+    assert gated["duration_h"].iloc[0] == pytest.approx(3.0 / 3600.0)
+
+
+def test_condition_missing_signal_excludes_dataset(make_dataset):
+    from vdas.analysis import conditions, prepare
+
+    df = pd.DataFrame({"t": np.arange(3.0), "current_gear": [1, 2, 3]})
+    ds = make_dataset(df, "nosig", {"t": "time", "current_gear": "gear"})
+    p = prepare(ds)
+    m = conditions.compute_mask(p, [conditions.Predicate("vehicle_speed_kph", "<=", 70)])
+    assert m.sum() == 0          # signal absent → all excluded
+
+
 def test_speed_vs_engine_role_detection(make_dataset):
     from vdas import datasets
 

@@ -62,9 +62,9 @@ def shift_count(pd_data: PreparedData) -> int:
 
 
 def shift_events(pd_data: PreparedData) -> pd.DataFrame:
-    """One row per shift: time, from_gear, to_gear, direction (+up/-down/0)."""
+    """One row per shift: time, sample idx, from_gear, to_gear, direction."""
     if not pd_data.gear_col:
-        return pd.DataFrame(columns=["t", "from_gear", "to_gear", "direction"])
+        return pd.DataFrame(columns=["t", "idx", "from_gear", "to_gear", "direction"])
     runs = _gear_runs(pd_data)
     events = []
     for i in range(1, len(runs)):
@@ -76,6 +76,7 @@ def shift_events(pd_data: PreparedData) -> pd.DataFrame:
             direction = 0
         events.append({
             "t": runs.iloc[i]["t_start"],
+            "idx": int(runs.iloc[i]["start_idx"]),   # sample index of the shift
             "from_gear": fr,
             "to_gear": to,
             "direction": direction,

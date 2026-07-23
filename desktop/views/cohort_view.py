@@ -25,6 +25,7 @@ from .. import theme
 from ..state import AppState
 from ..widgets.charts import BarChart
 from ..widgets.common import section_label
+from ..widgets.condition_bar import ConditionBar
 
 _MODE_TAGS = "タグごと"
 _MODE_CATEGORY = "カテゴリで分割"
@@ -84,6 +85,9 @@ class CohortView(QtWidgets.QWidget):
         ctl.addLayout(btns)
         lay.addLayout(ctl)
 
+        self.cond = ConditionBar()
+        lay.addWidget(self.cond)
+
         self.msg = QtWidgets.QLabel(); self.msg.setObjectName("dim")
         lay.addWidget(self.msg)
 
@@ -115,6 +119,7 @@ class CohortView(QtWidgets.QWidget):
         self.filter_list.itemChanged.connect(self.rebuild)
         self.metric_combo.currentIndexChanged.connect(self._draw)
         self.base_combo.currentIndexChanged.connect(self._draw)
+        self.cond.changed.connect(self.rebuild)
         self.state.tagsChanged.connect(self.reload_tags)
         self.state.datasetsChanged.connect(self.reload_tags)
         self._df = None
@@ -206,6 +211,10 @@ class CohortView(QtWidgets.QWidget):
             metric_defs += numeric_metric_defs(nc)
         self._defs = {m.key: m for m in metric_defs}
 
+        # feed available signals to the condition builder
+        self.cond.set_signals(sorted(num_cols))
+        predicates = self.cond.predicates()
+
         cur_key = self.metric_combo.currentData() or "shifts_per_hour"
         self.metric_combo.blockSignals(True)
         self.metric_combo.clear()
@@ -215,7 +224,8 @@ class CohortView(QtWidgets.QWidget):
         self.metric_combo.setCurrentIndex(i if i >= 0 else 0)
         self.metric_combo.blockSignals(False)
 
-        self._df, self._cohorts = groups.compare_defs(defs, [m.key for m in metric_defs])
+        self._df, self._cohorts = groups.compare_defs(
+            defs, [m.key for m in metric_defs], condition=predicates)
         self.base_combo.blockSignals(True)
         cur_base = self.base_combo.currentText()
         self.base_combo.clear()
@@ -229,7 +239,10 @@ class CohortView(QtWidgets.QWidget):
         if filt:
             names = [t.name for t in tags_mod.list_tags() if t.id in filt]
             fnote = f"　絞り込み: {' AND '.join(names)}"
-        self.msg.setText("※ N や総時間が異なるため、レート/割合で公平に比較します。" + fnote)
+        from vdas.analysis.conditions import label as cond_label
+        cnote = f"　集計条件: {cond_label(predicates)}" if predicates else ""
+        self.msg.setText("※ N や総時間が異なるため、レート/割合で公平に比較します。"
+                         + fnote + cnote)
         self._fill_table()
         self._draw()
 

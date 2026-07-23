@@ -44,6 +44,27 @@ def _num(df: pd.DataFrame, col: str) -> np.ndarray:
     return pd.to_numeric(df[col], errors="coerce").to_numpy(dtype=float)
 
 
+def _finalize(count, s, s2, mode, zcol, xe, ye, n_used) -> MapResult:
+    """Turn accumulated count/sum/sumsq grids into a MapResult for ``mode``."""
+    with np.errstate(invalid="ignore", divide="ignore"):
+        if mode == MODE_COUNT:
+            zg = count.astype(float); zlabel = MODE_LABELS[MODE_COUNT]
+        elif mode == MODE_DENSITY:
+            total = count.sum()
+            zg = count / total * 100.0 if total else count.astype(float)
+            zlabel = MODE_LABELS[MODE_DENSITY]
+        else:
+            mean = s / count
+            if mode == MODE_MEAN:
+                zg = mean; zlabel = f"{zcol} 平均"
+            else:
+                zg = np.sqrt(np.clip(s2 / count - mean * mean, 0.0, None))
+                zlabel = f"{zcol} 標準偏差"
+        zg = zg.astype(float)
+        zg[count == 0] = np.nan
+    return MapResult(z=zg, x_edges=xe, y_edges=ye, zlabel=zlabel, n_used=int(n_used))
+
+
 def compute_map(pd_data: PreparedData, xcol: str, ycol: str, mode: str,
                 zcol: str | None = None, bins: int = 40) -> MapResult:
     df = pd_data.df
@@ -87,3 +108,97 @@ def compute_map(pd_data: PreparedData, xcol: str, ycol: str, mode: str,
         zg = zg.astype(float)
         zg[count == 0] = np.nan       # empty cells → transparent
     return MapResult(z=zg, x_edges=xe, y_edges=ye, zlabel=zlabel, n_used=int(len(x)))
+
+
+# --------------------------------------------------------------------------- #
+#  Cohort-level maps (aggregate over many datasets on a common grid)
+# --------------------------------------------------------------------------- #
+def cohort_edges(dataset_ids, xcol, ycol, bins):
+    """Common bin edges spanning the union X/Y range of a set of datasets."""
+    from .. import datasets as ds_mod
+    from .core import prepare
+    xmin = ymin = np.inf
+    xmax = ymax = -np.inf
+    for did in dataset_ids:
+        ds = ds_mod.get_dataset(did)
+        if ds is None or not ds.exists:
+            continue
+        pdd = prepare(ds)
+        if xcol not in pdd.df or ycol not in pdd.df:
+            continue
+        x = _num(pdd.df, xcol); y = _num(pdd.df, ycol)
+        m = np.isfinite(x) & np.isfinite(y)
+        if not m.any():
+            continue
+        xmin = min(xmin, x[m].min()); xmax = max(xmax, x[m].max())
+        ymin = min(ymin, y[m].min()); ymax = max(ymax, y[m].max())
+    if not np.isfinite(xmin) or xmax <= xmin or ymax <= ymin:
+        return np.array([0.0, 1.0]), np.array([0.0, 1.0])
+    return (np.linspace(xmin, xmax, bins + 1), np.linspace(ymin, ymax, bins + 1))
+
+
+def _accumulate(dataset_ids, xcol, ycol, need_z, zcol, xe, ye, condition):
+    from .. import datasets as ds_mod
+    from .conditions import compute_mask
+    from .core import prepare
+    nx, ny = len(xe) - 1, len(ye) - 1
+    count = np.zeros((nx, ny)); s = np.zeros((nx, ny)); s2 = np.zeros((nx, ny))
+    n_used = 0
+    for did in dataset_ids:
+        ds = ds_mod.get_dataset(did)
+        if ds is None or not ds.exists:
+            continue
+        pdd = prepare(ds)
+        if xcol not in pdd.df or ycol not in pdd.df:
+            continue
+        x = _num(pdd.df, xcol); y = _num(pdd.df, ycol)
+        mask = np.isfinite(x) & np.isfinite(y)
+        if condition:
+            mask &= compute_mask(pdd, condition)
+        z = None
+        if need_z:
+            if zcol not in pdd.df:
+                continue
+            z = _num(pdd.df, zcol); mask &= np.isfinite(z)
+        xx, yy = x[mask], y[mask]
+        if len(xx) == 0:
+            continue
+        c, _, _ = np.histogram2d(xx, yy, bins=[xe, ye])
+        count += c; n_used += len(xx)
+        if need_z:
+            zz = z[mask]
+            s += np.histogram2d(xx, yy, bins=[xe, ye], weights=zz)[0]
+            s2 += np.histogram2d(xx, yy, bins=[xe, ye], weights=zz * zz)[0]
+    return count, s, s2, n_used
+
+
+def compute_cohort_map(dataset_ids, xcol, ycol, mode, zcol=None, bins=40,
+                       condition=None, edges=None):
+    """Aggregate a 2D map over all datasets in a cohort (common grid)."""
+    if edges is None:
+        xe, ye = cohort_edges(dataset_ids, xcol, ycol, bins)
+    else:
+        xe, ye = edges
+    need_z = mode in (MODE_MEAN, MODE_STD)
+    count, s, s2, n = _accumulate(dataset_ids, xcol, ycol, need_z, zcol,
+                                  xe, ye, condition)
+    return _finalize(count, s, s2, mode, zcol, xe, ye, n)
+
+
+def compute_diff_map(ids_a, ids_b, xcol, ycol, mode, zcol=None, bins=40,
+                     condition=None):
+    """Difference map A − B on a shared grid (diverging by construction)."""
+    xe, ye = cohort_edges(list(ids_a) + list(ids_b), xcol, ycol, bins)
+    ra = compute_cohort_map(ids_a, xcol, ycol, mode, zcol, bins, condition, (xe, ye))
+    rb = compute_cohort_map(ids_b, xcol, ycol, mode, zcol, bins, condition, (xe, ye))
+    za, zb = ra.z, rb.z
+    if mode in (MODE_DENSITY, MODE_COUNT):
+        # absence = 0 for extensive quantities; NaN only where both are empty
+        both_empty = np.isnan(za) & np.isnan(zb)
+        z = np.nan_to_num(za) - np.nan_to_num(zb)
+        z[both_empty] = np.nan
+    else:
+        z = za - zb                      # mean/std: undefined if either empty
+    zlabel = f"Δ {ra.zlabel} (A−B)"
+    return MapResult(z=z, x_edges=xe, y_edges=ye, zlabel=zlabel,
+                     n_used=ra.n_used + rb.n_used)

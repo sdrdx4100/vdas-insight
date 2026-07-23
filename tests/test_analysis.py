@@ -310,6 +310,35 @@ def test_condition_missing_signal_excludes_dataset(make_dataset):
     assert m.sum() == 0          # signal absent → all excluded
 
 
+def test_cohort_and_diff_maps(make_dataset):
+    from vdas import tags
+    from vdas.analysis import maps
+
+    rng = np.random.default_rng(1)
+    def mk(name, xlo, xhi):
+        n = 400
+        x = rng.uniform(xlo, xhi, n); y = rng.uniform(0, 100, n)
+        df = pd.DataFrame({"t": np.arange(n, dtype=float), "x": x, "y": y})
+        return make_dataset(df, name, {"t": "time", "x": "numeric", "y": "numeric"})
+
+    a1, a2 = mk("a1", 0, 60), mk("a2", 0, 60)
+    b1 = mk("b1", 0, 60)
+    ta = tags.create("mapA").id
+    tb = tags.create("mapB").id
+    tags.assign(a1.id, ta); tags.assign(a2.id, ta); tags.assign(b1.id, tb)
+
+    ids_a = tags.dataset_ids_for_tag(ta)
+    r = maps.compute_cohort_map(ids_a, "x", "y", maps.MODE_DENSITY, bins=10)
+    assert r.z.shape == (10, 10)
+    assert np.nansum(r.z) == pytest.approx(100.0)      # pooled density sums to 100
+    assert r.n_used == 800                             # both A datasets pooled
+
+    d = maps.compute_diff_map(ids_a, tags.dataset_ids_for_tag(tb),
+                              "x", "y", maps.MODE_DENSITY, bins=10)
+    # difference of two densities that each sum to 100 ⇒ nansum ≈ 0
+    assert abs(np.nansum(d.z)) < 1e-6
+
+
 def test_speed_vs_engine_role_detection(make_dataset):
     from vdas import datasets
 

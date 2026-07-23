@@ -10,6 +10,7 @@ from .panels.properties_panel import PropertiesPanel
 from .panels.signal_panel import SignalPanel
 from .panels.tags_panel import TagsPanel
 from .state import AppState
+from .views.cohort_map_view import CohortMapView
 from .views.cohort_view import CohortView
 from .views.flag_view import FlagView
 from .views.gear_view import GearView
@@ -85,6 +86,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.stats = StatsView(self.state)
         self.map = MapView(self.state)
         self.cohort = CohortView(self.state)
+        self.cohort_map = CohortMapView(self.state)
         self.summary = SummaryView(self.state)
         self.tabs.addTab(self.measurement, "📉 計測 (時系列)")
         self.tabs.addTab(self.gears, "⚙️ ギア段")
@@ -92,6 +94,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.tabs.addTab(self.stats, "📊 統計")
         self.tabs.addTab(self.map, "🗺 マップ (2D)")
         self.tabs.addTab(self.cohort, "🧩 コホート比較")
+        self.tabs.addTab(self.cohort_map, "🗺 コホートマップ")
         self.tabs.addTab(self.summary, "📋 サマリ")
         self.setCentralWidget(self.tabs)
 

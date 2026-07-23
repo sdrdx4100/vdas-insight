@@ -17,29 +17,55 @@ class ConditionBar(QtWidgets.QWidget):
         lay.setContentsMargins(0, 0, 0, 0)
         lay.setSpacing(3)
 
-        head = QtWidgets.QHBoxLayout()
+        summary = QtWidgets.QHBoxLayout()
         self.enable = QtWidgets.QCheckBox("集計条件 (AND)")
         self.enable.setToolTip("条件を満たすサンプルだけで集計します（例: 車速 ≤ 70）")
-        head.addWidget(self.enable)
+        summary.addWidget(self.enable)
+        self.summary_label = QtWidgets.QLabel("条件なし")
+        self.summary_label.setObjectName("dim")
+        self.summary_label.setTextInteractionFlags(QtCore.Qt.TextSelectableByMouse)
+        summary.addWidget(self.summary_label, 1)
+        self.btn_toggle = QtWidgets.QToolButton()
+        self.btn_toggle.setText("編集")
+        self.btn_toggle.setCheckable(True)
+        self.btn_toggle.setToolButtonStyle(QtCore.Qt.ToolButtonTextBesideIcon)
+        self.btn_toggle.setArrowType(QtCore.Qt.RightArrow)
+        summary.addWidget(self.btn_toggle)
+        lay.addLayout(summary)
+
+        self.details = QtWidgets.QWidget()
+        details_lay = QtWidgets.QVBoxLayout(self.details)
+        details_lay.setContentsMargins(20, 2, 0, 0)
+        details_lay.setSpacing(3)
+
+        head = QtWidgets.QHBoxLayout()
         self.btn_add = QtWidgets.QPushButton("＋条件")
         self.btn_add.setFixedWidth(64)
         head.addWidget(self.btn_add)
         head.addSpacing(12)
         head.addWidget(QtWidgets.QLabel("プリセット:"))
-        self.preset_combo = QtWidgets.QComboBox(); self.preset_combo.setMinimumWidth(150)
+        self.preset_combo = QtWidgets.QComboBox()
+        self.preset_combo.setMinimumWidth(150)
         head.addWidget(self.preset_combo)
-        self.btn_save = QtWidgets.QPushButton("保存"); self.btn_save.setFixedWidth(52)
-        self.btn_del = QtWidgets.QPushButton("削除"); self.btn_del.setFixedWidth(52)
-        head.addWidget(self.btn_save); head.addWidget(self.btn_del)
+        self.btn_save = QtWidgets.QPushButton("保存")
+        self.btn_save.setFixedWidth(52)
+        self.btn_del = QtWidgets.QPushButton("削除")
+        self.btn_del.setFixedWidth(52)
+        head.addWidget(self.btn_save)
+        head.addWidget(self.btn_del)
         head.addStretch(1)
-        lay.addLayout(head)
+        details_lay.addLayout(head)
 
         self.rows_box = QtWidgets.QVBoxLayout()
         self.rows_box.setSpacing(3)
-        lay.addLayout(self.rows_box)
+        details_lay.addLayout(self.rows_box)
+        lay.addWidget(self.details)
+
         self._rows: list[dict] = []
+        self.details.setVisible(False)
 
         self.enable.toggled.connect(self._on_enable)
+        self.btn_toggle.toggled.connect(self._toggle_details)
         self.btn_add.clicked.connect(lambda: (self._add_row(), self._emit()))
         self.preset_combo.activated.connect(self._load_preset)
         self.btn_save.clicked.connect(self._save_preset)
@@ -47,41 +73,62 @@ class ConditionBar(QtWidgets.QWidget):
         self._reload_presets()
         self._on_enable(False)
 
-    # ---------------------------------------------------------------- signals
+    def _toggle_details(self, expanded: bool):
+        self.details.setVisible(expanded)
+        self.btn_toggle.setText("閉じる" if expanded else "編集")
+        self.btn_toggle.setArrowType(
+            QtCore.Qt.DownArrow if expanded else QtCore.Qt.RightArrow)
+
     def set_signals(self, cols: list[str]):
         self._signals = list(cols)
         for row in self._rows:
             cur = row["sig"].currentText()
             row["sig"].blockSignals(True)
-            row["sig"].clear(); row["sig"].addItems(self._signals)
+            row["sig"].clear()
+            row["sig"].addItems(self._signals)
             if cur in self._signals:
                 row["sig"].setCurrentText(cur)
             row["sig"].blockSignals(False)
+        self._update_summary()
 
     def _on_enable(self, on: bool):
         self.btn_add.setEnabled(on)
+        self.preset_combo.setEnabled(on)
+        self.btn_save.setEnabled(on)
+        self.btn_del.setEnabled(on)
         for row in self._rows:
             row["w"].setEnabled(on)
         if on and not self._rows:
             self._add_row()
+            self.btn_toggle.setChecked(True)
         self._emit()
 
     def _add_row(self, signal: str | None = None):
         w = QtWidgets.QWidget()
-        h = QtWidgets.QHBoxLayout(w); h.setContentsMargins(0, 0, 0, 0); h.setSpacing(4)
-        sig = QtWidgets.QComboBox(); sig.setMinimumWidth(150); sig.addItems(self._signals)
+        h = QtWidgets.QHBoxLayout(w)
+        h.setContentsMargins(0, 0, 0, 0)
+        h.setSpacing(4)
+        sig = QtWidgets.QComboBox()
+        sig.setMinimumWidth(150)
+        sig.addItems(self._signals)
         if signal and signal in self._signals:
             sig.setCurrentText(signal)
         op = QtWidgets.QComboBox()
         for k, lbl in OPS.items():
             op.addItem(lbl, k)
-        val = QtWidgets.QDoubleSpinBox(); val.setRange(-1e9, 1e9); val.setDecimals(2)
-        val2 = QtWidgets.QDoubleSpinBox(); val2.setRange(-1e9, 1e9); val2.setDecimals(2)
+        val = QtWidgets.QDoubleSpinBox()
+        val.setRange(-1e9, 1e9)
+        val.setDecimals(2)
+        val2 = QtWidgets.QDoubleSpinBox()
+        val2.setRange(-1e9, 1e9)
+        val2.setDecimals(2)
         val2.setVisible(False)
-        rm = QtWidgets.QPushButton("✕"); rm.setFixedWidth(26)
+        rm = QtWidgets.QPushButton("✕")
+        rm.setFixedWidth(26)
         for x in (sig, op, val, val2):
             h.addWidget(x)
-        h.addWidget(rm); h.addStretch(1)
+        h.addWidget(rm)
+        h.addStretch(1)
         self.rows_box.addWidget(w)
         row = {"w": w, "sig": sig, "op": op, "val": val, "val2": val2}
         self._rows.append(row)
@@ -89,6 +136,7 @@ class ConditionBar(QtWidgets.QWidget):
         def on_op():
             row["val2"].setVisible(op.currentData() == "between")
             self._emit()
+
         op.currentIndexChanged.connect(on_op)
         for x in (sig, val, val2):
             (x.valueChanged if isinstance(x, QtWidgets.QDoubleSpinBox)
@@ -102,9 +150,28 @@ class ConditionBar(QtWidgets.QWidget):
         self._emit()
 
     def _emit(self):
+        self._update_summary()
         self.changed.emit()
 
-    # ---------------------------------------------------------------- presets
+    def _update_summary(self):
+        if not self.enable.isChecked():
+            self.summary_label.setText("条件なし")
+            return
+        preds = self._collect(force=True)
+        if not preds:
+            self.summary_label.setText("条件が未設定")
+            return
+        labels = []
+        for p in preds:
+            op_label = OPS.get(p.op, p.op)
+            if p.op == "between":
+                labels.append(f"{p.signal} {op_label} {p.value:g}〜{p.value2:g}")
+            else:
+                labels.append(f"{p.signal} {op_label} {p.value:g}")
+        text = " AND ".join(labels)
+        self.summary_label.setText(text if len(text) <= 100 else text[:97] + "…")
+        self.summary_label.setToolTip(text)
+
     def set_predicates(self, preds: list[Predicate]):
         for row in list(self._rows):
             row["w"].setParent(None)
@@ -121,6 +188,7 @@ class ConditionBar(QtWidgets.QWidget):
             row["val"].setValue(p.value)
             row["val2"].setValue(p.value2)
             row["val2"].setVisible(p.op == "between")
+        self.btn_toggle.setChecked(bool(preds))
         self._emit()
 
     def _reload_presets(self):
@@ -138,7 +206,7 @@ class ConditionBar(QtWidgets.QWidget):
         for pr in presets_mod.list_presets():
             if pr.id == pid:
                 self.set_predicates(pr.predicates)
-                self.set_signals(self._signals)  # re-sync combos to current signals
+                self.set_signals(self._signals)
                 break
 
     def _save_preset(self):
@@ -163,7 +231,6 @@ class ConditionBar(QtWidgets.QWidget):
         presets_mod.delete(pid)
         self._reload_presets()
 
-    # ---------------------------------------------------------------- output
     def _collect(self, force: bool = False) -> list[Predicate]:
         if not force and not self.enable.isChecked():
             return []

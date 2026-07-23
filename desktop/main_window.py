@@ -150,9 +150,16 @@ class MainWindow(QtWidgets.QMainWindow):
             self.lbl_dataset.setText(f"▶ {d.name}   ({d.row_count:,} 行 · {d.format})")
         else:
             self.lbl_dataset.setText("データセット未選択")
-        # Rebuild the currently visible view; others rebuild lazily on show.
+        # Rebuild views defensively: a single problematic dataset must never
+        # take down the whole app (e.g. at startup for an auto-selected file).
         for v in (self.measurement, self.gears, self.flags, self.stats, self.map):
-            v.rebuild()
+            try:
+                v.rebuild()
+            except Exception as e:  # noqa: BLE001
+                import traceback
+                traceback.print_exc()
+                self.statusBar().showMessage(
+                    f"⚠ {type(v).__name__} の更新でエラー: {e}", 8000)
 
     def _set_cursor_text(self, text: str):
         self.lbl_cursor.setText(text)

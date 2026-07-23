@@ -339,6 +339,23 @@ def test_cohort_and_diff_maps(make_dataset):
     assert abs(np.nansum(d.z)) < 1e-6
 
 
+def test_prepare_handles_empty_and_nan_time(make_dataset):
+    from vdas.analysis import prepare
+
+    # 0-row dataset must not raise (regression: nanmin on empty time column)
+    empty = pd.DataFrame({"t": pd.Series([], dtype=float),
+                          "v": pd.Series([], dtype=float)})
+    ds0 = make_dataset(empty, "empty0", {"t": "time", "v": "numeric"})
+    p0 = prepare(ds0)
+    assert p0.n == 0 and p0.duration_s == 0.0
+
+    # all-NaN time column falls back to a 1 Hz index instead of crashing
+    nant = pd.DataFrame({"t": [np.nan] * 5, "v": [1.0, 2, 3, 4, 5]})
+    dsn = make_dataset(nant, "nant", {"t": "time", "v": "numeric"})
+    pn = prepare(dsn)
+    assert pn.n == 5 and pn.dt == pytest.approx(1.0)
+
+
 def test_speed_vs_engine_role_detection(make_dataset):
     from vdas import datasets
 

@@ -52,15 +52,23 @@ class PreparedData:
 
 
 def _time_seconds(series: pd.Series, unit: str = "s") -> np.ndarray:
-    """Convert a time column to float seconds from the first sample."""
+    """Convert a time column to float seconds from the first sample.
+
+    Robust to empty and all-non-finite time columns: an empty column yields an
+    empty axis, and a column with no finite values falls back to a 1 Hz index
+    so the rest of the pipeline still works instead of crashing.
+    """
+    if len(series) == 0:
+        return np.array([], dtype=float)
     if pd.api.types.is_datetime64_any_dtype(series):
         t = series.astype("int64").to_numpy(dtype=float) / 1e9
     else:
         raw = pd.to_numeric(series, errors="coerce").to_numpy(dtype=float)
         scale = {"s": 1.0, "ms": 1e-3, "us": 1e-6, "ns": 1e-9, "min": 60.0}.get(unit, 1.0)
         t = raw * scale
-    t = t - np.nanmin(t)
-    return t
+    if not np.isfinite(t).any():
+        return np.arange(len(t), dtype=float)     # no usable timestamps → index
+    return t - np.nanmin(t)
 
 
 def _median_dt(t: np.ndarray) -> float:

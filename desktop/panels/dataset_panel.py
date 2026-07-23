@@ -155,5 +155,5 @@ class DatasetPanel(QtWidgets.QWidget):
 
 
 def _sample_glob():
-    from vdas.config import PROJECT_ROOT
-    return PROJECT_ROOT / "sample_data" / "*.parquet"
+    from vdas.config import SAMPLE_DIR
+    return SAMPLE_DIR / "*.parquet"

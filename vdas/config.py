@@ -2,13 +2,27 @@
 from __future__ import annotations
 
 import os
+import sys
 from pathlib import Path
 
 # --- Paths ------------------------------------------------------------------
 # Root of the project (repo root). Everything user-generated lives under DATA_DIR.
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
-DATA_DIR = Path(os.environ.get("VDAS_DATA_DIR", PROJECT_ROOT / "data")).resolve()
+# When frozen by PyInstaller, bundled resources live under sys._MEIPASS and the
+# writable data dir must live outside the (read-only, temporary) bundle.
+_FROZEN = getattr(sys, "frozen", False)
+if _FROZEN:
+    BASE_DIR = Path(getattr(sys, "_MEIPASS", Path(sys.executable).resolve().parent))
+    _DEFAULT_DATA = Path.home() / ".vdas-insight"
+else:
+    BASE_DIR = PROJECT_ROOT
+    _DEFAULT_DATA = PROJECT_ROOT / "data"
+
+# Read-only bundled sample data (shipped with the app / repo).
+SAMPLE_DIR = BASE_DIR / "sample_data"
+
+DATA_DIR = Path(os.environ.get("VDAS_DATA_DIR", _DEFAULT_DATA)).resolve()
 DB_PATH = Path(os.environ.get("VDAS_DB_PATH", DATA_DIR / "vdas.duckdb")).resolve()
 UPLOAD_DIR = DATA_DIR / "uploads"
 

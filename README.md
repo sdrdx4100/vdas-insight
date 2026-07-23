@@ -200,3 +200,31 @@ tests/                    解析エンジン + デスクトップ起動のスモ
 pip install -r requirements-dev.txt
 QT_QPA_PLATFORM=offscreen pytest -q     # 解析エンジン + デスクトップ起動スモーク
 ```
+
+---
+
+## 配布（実行ファイル化）
+
+Python 非導入の PC でも動く**単一実行ファイル**を PyInstaller で作れます（同梱サンプル入り）。
+実行ファイルは **OS 別**（Windows の `.exe` は Windows 上でビルド）です。
+
+**ローカルビルド**
+```bash
+pip install -r requirements-dev.txt
+pyinstaller packaging/vdas-insight.spec --noconfirm
+#   → dist/VDAS-Insight（Windows は dist/VDAS-Insight.exe）
+```
+実行ファイル版はメタDBを `~/.vdas-insight/vdas.duckdb`（`VDAS_DATA_DIR` で変更可）に保存します。
+
+**GitHub Actions で3OS一括ビルド＆リリース添付**
+`.github/workflows/release.yml` が用意済み。バージョンタグを push すると
+Windows / macOS / Linux 向けの実行ファイルをビルドし、そのタグの **Release に自動添付**します。
+
+```bash
+git tag -a v1.1.0 -m "VDAS-Insight v1.1.0"
+git push origin v1.1.0        # → Actions がビルド → Release に .zip / .tar.gz を添付
+```
+（Actions → *Build & Release* → *Run workflow* で、リリースせずビルド成果物だけ得ることも可能。）
+
+> Linux 実行ファイルの利用側には Qt のシステムライブラリ（クイックスタート参照）が必要です。
+> Windows / macOS は同梱で自己完結します。

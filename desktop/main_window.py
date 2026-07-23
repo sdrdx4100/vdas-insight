@@ -16,6 +16,7 @@ from .views.gear_view import GearView
 from .views.map_view import MapView
 from .views.measurement_view import MeasurementView
 from .views.stats_view import StatsView
+from .views.summary_view import SummaryView
 
 
 class MainWindow(QtWidgets.QMainWindow):
@@ -84,12 +85,14 @@ class MainWindow(QtWidgets.QMainWindow):
         self.stats = StatsView(self.state)
         self.map = MapView(self.state)
         self.cohort = CohortView(self.state)
+        self.summary = SummaryView(self.state)
         self.tabs.addTab(self.measurement, "📉 計測 (時系列)")
         self.tabs.addTab(self.gears, "⚙️ ギア段")
         self.tabs.addTab(self.flags, "🚩 フラグ")
         self.tabs.addTab(self.stats, "📊 統計")
         self.tabs.addTab(self.map, "🗺 マップ (2D)")
         self.tabs.addTab(self.cohort, "🧩 コホート比較")
+        self.tabs.addTab(self.summary, "📋 サマリ")
         self.setCentralWidget(self.tabs)
 
     def _build_menu(self):

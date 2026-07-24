@@ -31,6 +31,7 @@ class MainWindow(QtWidgets.QMainWindow):
                             | QtWidgets.QMainWindow.AnimatedDocks)
 
         self._build_docks()
+        self._build_panel_actions()
         self._build_central()
         self._build_menu()
         self._build_toolbar()
@@ -47,7 +48,8 @@ class MainWindow(QtWidgets.QMainWindow):
         d = QtWidgets.QDockWidget(title, self)
         d.setObjectName(obj)
         d.setWidget(widget)
-        d.setFeatures(QtWidgets.QDockWidget.DockWidgetMovable
+        d.setFeatures(QtWidgets.QDockWidget.DockWidgetClosable
+                      | QtWidgets.QDockWidget.DockWidgetMovable
                       | QtWidgets.QDockWidget.DockWidgetFloatable)
         self.addDockWidget(area, d)
         return d
@@ -72,6 +74,50 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self.resizeDocks([self.dock_data, self.dock_props], [300, 320],
                          QtCore.Qt.Horizontal)
+
+    def _build_panel_actions(self):
+        self.act_left_panels = QtGui.QAction("左パネル", self)
+        self.act_left_panels.setCheckable(True)
+        self.act_left_panels.setChecked(True)
+        self.act_left_panels.setShortcut("Ctrl+Shift+L")
+        self.act_left_panels.setToolTip(
+            "データセットと信号パネルをまとめて表示 / 非表示")
+        self.act_left_panels.toggled.connect(
+            lambda visible: self._set_side_visible("left", visible))
+
+        self.act_right_panels = QtGui.QAction("右パネル", self)
+        self.act_right_panels.setCheckable(True)
+        self.act_right_panels.setChecked(True)
+        self.act_right_panels.setShortcut("Ctrl+Shift+R")
+        self.act_right_panels.setToolTip(
+            "役割 / プロパティとタグ / コホートをまとめて表示 / 非表示")
+        self.act_right_panels.toggled.connect(
+            lambda visible: self._set_side_visible("right", visible))
+
+        for dock in self._side_docks("left") + self._side_docks("right"):
+            dock.visibilityChanged.connect(
+                lambda _visible: self._sync_panel_actions())
+        self._sync_panel_actions()
+
+    def _side_docks(self, side: str):
+        if side == "left":
+            return (self.dock_data, self.dock_sig)
+        if side == "right":
+            return (self.dock_props, self.dock_tags)
+        raise ValueError(f"unknown dock side: {side}")
+
+    def _set_side_visible(self, side: str, visible: bool):
+        for dock in self._side_docks(side):
+            dock.setVisible(visible)
+        self._sync_panel_actions()
+
+    def _sync_panel_actions(self):
+        for side, action in (("left", self.act_left_panels),
+                             ("right", self.act_right_panels)):
+            visible = any(not dock.isHidden() for dock in self._side_docks(side))
+            previous = action.blockSignals(True)
+            action.setChecked(visible)
+            action.blockSignals(previous)
 
     def _build_central(self):
         """Group the growing view list into single-data and cohort workflows."""
@@ -125,6 +171,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.splitDockWidget(self.dock_props, self.dock_tags, QtCore.Qt.Vertical)
         self.resizeDocks([self.dock_data, self.dock_props], [300, 320],
                          QtCore.Qt.Horizontal)
+        self._sync_panel_actions()
 
     def _build_menu(self):
         mb = self.menuBar()
@@ -138,8 +185,11 @@ class MainWindow(QtWidgets.QMainWindow):
         act_quit.triggered.connect(self.close)
 
         m_view = mb.addMenu("表示(&V)")
+        m_view.addAction(self.act_left_panels)
+        m_view.addAction(self.act_right_panels)
+        m_individual = m_view.addMenu("個別パネル")
         for dock in (self.dock_data, self.dock_sig, self.dock_props, self.dock_tags):
-            m_view.addAction(dock.toggleViewAction())
+            m_individual.addAction(dock.toggleViewAction())
         m_view.addSeparator()
         m_view.addAction("レイアウトを初期状態に戻す", self._reset_layout)
 
@@ -160,6 +210,9 @@ class MainWindow(QtWidgets.QMainWindow):
         tb.addSeparator()
         a_cmp = tb.addAction("コホート比較へ")
         a_cmp.triggered.connect(self._show_cohort_comparison)
+        tb.addSeparator()
+        tb.addAction(self.act_left_panels)
+        tb.addAction(self.act_right_panels)
 
     def _open_manage(self):
         from .panels.manage_dialog import ManageDialog

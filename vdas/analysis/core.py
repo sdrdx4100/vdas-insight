@@ -8,6 +8,7 @@ Everything downstream (metrics, gears, flags) consumes a ``PreparedData``.
 from __future__ import annotations
 
 import os
+from collections import OrderedDict
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -99,10 +100,20 @@ def sample_dt(t: np.ndarray) -> np.ndarray:
     return dt
 
 
-#: Self-invalidating cache of full prepared frames, keyed by dataset id. The
-#: signature folds in file mtime + roles + derived-signal definitions, so any
-#: change produces a new key and a fresh build without explicit invalidation.
-_PREP_CACHE: dict[int, tuple] = {}
+#: Self-invalidating LRU cache of full prepared frames, keyed by dataset id.
+#: The signature folds in file mtime + roles + derived-signal definitions, so
+#: any change produces a fresh build. Limiting retained frames avoids memory
+#: growing without bound as users inspect many large telemetry files.
+_PREP_CACHE_MAX = 3
+_PREP_CACHE: OrderedDict[int, tuple[tuple, PreparedData]] = OrderedDict()
+
+
+def invalidate_prepared_cache(dataset_id: int | None = None) -> None:
+    """Drop one prepared frame, or clear the entire prepared-data cache."""
+    if dataset_id is None:
+        _PREP_CACHE.clear()
+    else:
+        _PREP_CACHE.pop(dataset_id, None)
 
 
 def _prep_signature(dataset: Dataset) -> tuple:
@@ -125,12 +136,14 @@ def prepare(dataset: Dataset, columns: list[str] | None = None) -> PreparedData:
     """Build a PreparedData for a dataset (optionally restricting columns).
 
     Full-load results (``columns is None``) are cached until the file, roles or
-    derived-signal definitions change.
+    derived-signal definitions change. The least recently used frame is evicted
+    when the cache exceeds ``_PREP_CACHE_MAX`` entries.
     """
     if columns is None:
         sig = _prep_signature(dataset)
         hit = _PREP_CACHE.get(dataset.id)
         if hit is not None and hit[0] == sig:
+            _PREP_CACHE.move_to_end(dataset.id)
             return hit[1]
 
     time_col = ds_mod.time_column(dataset.id)
@@ -182,4 +195,7 @@ def prepare(dataset: Dataset, columns: list[str] | None = None) -> PreparedData:
     )
     if columns is None:
         _PREP_CACHE[dataset.id] = (sig, result)
+        _PREP_CACHE.move_to_end(dataset.id)
+        while len(_PREP_CACHE) > _PREP_CACHE_MAX:
+            _PREP_CACHE.popitem(last=False)
     return result

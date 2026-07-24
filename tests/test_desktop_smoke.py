@@ -1,6 +1,6 @@
-"""Headless smoke test: the desktop app builds and switches views without error.
+"""Headless smoke tests for the grouped desktop workspace.
 
-Runs Qt with the 'offscreen' platform so it works in CI. Skipped entirely if
+Runs Qt with the ``offscreen`` platform so it works in CI. Skipped entirely if
 PySide6 (or its platform plugin) is unavailable.
 """
 from __future__ import annotations
@@ -22,9 +22,9 @@ from vdas.config import PROJECT_ROOT  # noqa: E402
 def app():
     from PySide6 import QtWidgets
     from desktop import theme
-    a = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
-    theme.apply_theme(a)
-    return a
+    qt_app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    theme.apply_theme(qt_app)
+    return qt_app
 
 
 def _load_samples():
@@ -33,29 +33,68 @@ def _load_samples():
     if not paths:
         pytest.skip("no sample data present")
     existing = {d.path for d in datasets.list_datasets()}
-    for p in paths:
-        if os.path.abspath(p) not in existing:
-            datasets.register(p)
-    tid = next((t.id for t in tags.list_tags() if t.name == "all"), None) \
+    for path in paths:
+        if os.path.abspath(path) not in existing:
+            datasets.register(path)
+    tag_id = next((t.id for t in tags.list_tags() if t.name == "all"), None) \
         or tags.create("all").id
-    for d in datasets.list_datasets():
-        tags.assign(d.id, tid)
+    for dataset in datasets.list_datasets():
+        tags.assign(dataset.id, tag_id)
 
 
-def test_mainwindow_builds_and_switches_tabs(app):
+def _switch_all_tabs(tab_widget, app):
+    for index in range(tab_widget.count()):
+        tab_widget.setCurrentIndex(index)
+        app.processEvents()
+
+
+def test_mainwindow_builds_and_switches_all_nested_tabs(app):
     _load_samples()
     from desktop.main_window import MainWindow
 
     win = MainWindow()
     win.resize(1400, 900)
-    # A dataset should auto-select; every tab must rebuild without raising.
+    win.show()
+    app.processEvents()
+
     assert win.state.current_id != -1
-    for i in range(win.tabs.count()):
-        win.tabs.setCurrentIndex(i)
-        app.processEvents()
-    # Cohort view should have produced a comparison frame.
-    win.tabs.setCurrentWidget(win.cohort)
+
+    win.workspace.setCurrentWidget(win.single_tabs)
+    _switch_all_tabs(win.single_tabs, app)
+    assert win.single_tabs.count() == 5
+
+    win.workspace.setCurrentWidget(win.cohort_tabs)
+    _switch_all_tabs(win.cohort_tabs, app)
+    assert win.cohort_tabs.count() == 3
+
+    win.cohort_tabs.setCurrentWidget(win.cohort)
     win.cohort.rebuild()
     app.processEvents()
     assert win.cohort._df is not None and not win.cohort._df.empty
+
+    win.close()
+
+
+def test_new_analysis_controls_are_operable(app):
+    _load_samples()
+    from desktop.main_window import MainWindow
+
+    win = MainWindow()
+    win.show()
+    app.processEvents()
+
+    condition = win.cohort.cond
+    assert condition.details.isHidden()
+    condition.btn_toggle.setChecked(True)
+    app.processEvents()
+    assert not condition.details.isHidden()
+    condition.btn_toggle.setChecked(False)
+    app.processEvents()
+    assert condition.details.isHidden()
+
+    win.summary.metric_search.setText("ギア")
+    app.processEvents()
+    assert win.summary.metric_list.count() > 0
+    win.summary.metric_search.clear()
+
     win.close()

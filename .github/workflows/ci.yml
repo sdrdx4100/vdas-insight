@@ -39,4 +39,19 @@ jobs:
           pip install -r requirements-dev.txt
 
       - name: Run test suite
-        run: python -m pytest -q
+        shell: bash
+        run: |
+          set +e
+          python -m pytest -q > pytest.log 2>&1
+          status=$?
+          cat pytest.log
+          exit $status
+
+      - name: Upload pytest log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pytest-log
+          path: pytest.log
+          if-no-files-found: error
+          retention-days: 7

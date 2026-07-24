@@ -98,3 +98,40 @@ def test_new_analysis_controls_are_operable(app):
     win.summary.metric_search.clear()
 
     win.close()
+
+
+def test_side_panels_can_be_collapsed_and_restored(app):
+    _load_samples()
+    from desktop.main_window import MainWindow
+
+    win = MainWindow()
+    win.show()
+    app.processEvents()
+
+    left = (win.dock_data, win.dock_sig)
+    right = (win.dock_props, win.dock_tags)
+    assert all(not dock.isHidden() for dock in left + right)
+    assert win.act_left_panels.isChecked()
+    assert win.act_right_panels.isChecked()
+
+    win.act_right_panels.setChecked(False)
+    app.processEvents()
+    assert all(dock.isHidden() for dock in right)
+    assert all(not dock.isHidden() for dock in left)
+
+    win.act_left_panels.setChecked(False)
+    app.processEvents()
+    assert all(dock.isHidden() for dock in left)
+
+    win.act_right_panels.setChecked(True)
+    app.processEvents()
+    assert all(not dock.isHidden() for dock in right)
+    assert all(dock.isHidden() for dock in left)
+
+    win._reset_layout()
+    app.processEvents()
+    assert all(not dock.isHidden() for dock in left + right)
+    assert win.act_left_panels.isChecked()
+    assert win.act_right_panels.isChecked()
+
+    win.close()
